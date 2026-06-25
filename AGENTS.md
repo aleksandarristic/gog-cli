@@ -17,7 +17,16 @@
 
 ## Commands
 - Run tests with `python -m pytest`.
-- Run the CLI locally with `python -m gog_dl.cli --help` or the installed `gog-dl` console script.
+- Run the CLI locally with `python -m gog_dl.cli --help` or the installed `gog` console script.
+
+## Task management
+- Use `.task-management/` for durable task tracking.
+- Use stable task IDs in the form `TASK-####`; never reuse IDs.
+- Keep immediate work in `.task-management/TODO.md` and deferred work in `.task-management/BACKLOG.md`.
+- Keep larger task details in `.task-management/TASK-####-slug.md`.
+- Move completed tasks to `.task-management/DONE.md` with completion date and notes.
+- Move dropped tasks to `.task-management/REMOVED.md` with removal date and reason.
+- Keep transferring durable decisions from `SPEC.md` and `missing_pieces.md` into task files gradually; do not delete those source docs until the transferred content has a clear home.
 
 ## Multi-agent dispatch
 - Agent roles:
