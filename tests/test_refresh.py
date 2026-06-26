@@ -24,6 +24,12 @@ _PRODUCT_1 = {
     "image": "//cdn.gog.com/alpha.jpg",
     "worksOn": {"Windows": True, "Mac": False, "Linux": True},
     "isComingSoon": False,
+    "releaseDate": {"date": "2019-05-28 00:00:00.000000", "timezone": "+03:00"},
+    "category": "Strategy",
+    "tags": [],
+    "isGame": True,
+    "isMovie": False,
+    "isGalaxyCompatible": True,
 }
 _PRODUCT_2 = {
     "id": 2,
@@ -38,6 +44,9 @@ _DOWNLOADS_2 = {"id": 2, "downloads": {"installers": [{"id": "en2"}]}}
 _DOWNLOADS_WITH_PLATFORMS = {
     "id": 1,
     "content_system_compatibility": {"windows": True, "osx": True, "linux": False},
+    "release_date": "2019-05-28T15:55:00+0300",
+    "is_installable": True,
+    "game_type": "game",
     "downloads": {
         "installers": [
             {
@@ -69,6 +78,12 @@ def test_normalize_game_fields() -> None:
     assert result["slug"] == "alpha-game"
     assert result["image_url"] == "//cdn.gog.com/alpha.jpg"
     assert result["is_pre_order"] is False
+    assert result["release_date"] == "2019-05-28"
+    assert result["release_year"] == 2019
+    assert result["genres"] == ["Strategy"]
+    assert result["is_game"] is True
+    assert result["is_movie"] is False
+    assert result["is_galaxy_compatible"] is True
 
 
 def test_normalize_game_no_works_on() -> None:
@@ -172,8 +187,10 @@ def test_handle_refresh_happy_path(
     result = handle_refresh(args)
 
     assert result == ExitCode.SUCCESS
-    out = capsys.readouterr().out
-    assert "2 games" in out
+    captured = capsys.readouterr()
+    assert "2 games" in captured.out
+    assert "Fetching library page" in captured.err
+    assert "Refreshing download metadata for 2 games" in captured.err
 
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     library = json.loads(paths.library_cache.read_text())
@@ -218,6 +235,9 @@ def test_handle_refresh_enriches_platforms_from_download_metadata(
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     library = json.loads(paths.library_cache.read_text())
     assert library["games"][0]["platforms"] == ["windows", "mac", "linux"]
+    assert library["games"][0]["release_year"] == 2019
+    assert library["games"][0]["release_date"] == "2019-05-28"
+    assert library["games"][0]["is_installable"] is True
 
 
 @rsps_lib.activate
@@ -292,9 +312,11 @@ def test_handle_refresh_json_output(
     result = handle_refresh(_make_args(output_format="json"))
     assert result == ExitCode.SUCCESS
 
-    out = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
     assert out["command"] == "refresh"
     assert out["data"]["total"] == 2
+    assert "Fetching library page" not in captured.err
 
 
 @rsps_lib.activate

@@ -82,6 +82,37 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         dest="output_format",
         help="Output format (default: human).",
     )
+    purchased.add_argument(
+        "--platform",
+        action="append",
+        default=[],
+        dest="platforms",
+        metavar="PLATFORM",
+        help="Filter by platform (windows, mac, linux). Repeatable.",
+    )
+    purchased.add_argument(
+        "--year",
+        metavar="RANGE",
+        help="Filter by release year, e.g. 1998..2005, 2020.., or ..2000.",
+    )
+    purchased.add_argument(
+        "--include-unknown-year",
+        action="store_true",
+        help="Keep games with unknown release years when --year is used.",
+    )
+    purchased.add_argument(
+        "--genre",
+        action="append",
+        default=[],
+        dest="genres",
+        metavar="GENRE",
+        help="Filter by genre/category/tag. Repeatable; comma-separated values allowed.",
+    )
+    purchased.add_argument(
+        "--search",
+        metavar="TEXT",
+        help="Fuzzy title search.",
+    )
     purchased.set_defaults(handler=handle_list_purchased)
 
     backed_up = list_sub.add_parser("backed-up", help="List locally backed-up games.")

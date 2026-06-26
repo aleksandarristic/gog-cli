@@ -5,12 +5,13 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, datetime, timedelta
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 from gog_cli.backup import BackupLayout
-from gog_cli.errors import ExitCode
-from gog_cli.metadata import extract_download_platforms
+from gog_cli.errors import ExitCode, UsageError
+from gog_cli.metadata import extract_download_summary, normalize_genres, normalize_platforms
 from gog_cli.output import (
     GAME_CURRENT,
     GAME_ERROR,
@@ -46,7 +47,8 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         print(f"Purchased library cache is unreadable: {exc}", file=sys.stderr)
         return ExitCode.PARSER
 
-    games = [_enrich_game_platforms(game, paths) for game in cache["games"]]
+    games = [_enrich_game_metadata(game, paths) for game in cache["games"]]
+    games = _apply_purchased_filters(games, args)
     fetched_at = cache.get("fetched_at", "")
     output_format = OutputFormat(getattr(args, "output_format", "human"))
 
@@ -55,13 +57,15 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         return ExitCode.SUCCESS
 
     lines: list[str] = [
-        f"{'ID':>10}  {'Title':<35}  Platforms",
-        f"{'-' * 10}  {'-' * 35}  {'-' * 25}",
+        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  Platforms",
+        f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 25}",
     ]
     for game in games:
         lines.append(
             f"{str(game.get('product_id', '')):>10}  "
-            f"{str(game.get('title', '')):<35.35}  "
+            f"{str(game.get('title', '')):<34.34}  "
+            f"{_format_year(game.get('release_year')):>4}  "
+            f"{_format_genres(game.get('genres', [])):<18.18}  "
             f"{_format_platforms(game.get('platforms', []))}"
         )
 
@@ -142,20 +146,185 @@ def _load_manifest(path: Path) -> dict[str, Any]:
     return data
 
 
-def _enrich_game_platforms(game: dict[str, Any], paths: Any) -> dict[str, Any]:
-    if game.get("platforms"):
-        return game
+def _enrich_game_metadata(game: dict[str, Any], paths: Any) -> dict[str, Any]:
+    enriched = {
+        **game,
+        "owned": True,
+        "platforms": normalize_platforms(game.get("platforms", [])),
+        "genres": normalize_genres(game.get("genres", []), game.get("category", "")),
+    }
     product_id = game.get("product_id")
     if product_id is None:
-        return game
+        return enriched
     try:
         download_cache = read_json_file(paths.download_cache(str(product_id)))
     except (StateFileMissingError, StateFileCorruptError, StateFileInvalidError):
-        return game
-    platforms = extract_download_platforms(download_cache)
+        return enriched
+
+    summary = extract_download_summary(download_cache)
+    if summary.get("platforms") and not enriched.get("platforms"):
+        enriched["platforms"] = summary["platforms"]
+    for key in ("release_date", "release_year", "is_installable", "download_type"):
+        value = summary.get(key)
+        if value not in (None, "") and enriched.get(key) in (None, ""):
+            enriched[key] = value
+    return enriched
+
+
+def _apply_purchased_filters(
+    games: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    platforms = normalize_platforms(_split_filter_values(getattr(args, "platforms", [])))
+    genres = [
+        value.casefold()
+        for value in _split_filter_values(getattr(args, "genres", []))
+        if value
+    ]
+    year_range = _parse_year_range(getattr(args, "year", None))
+    include_unknown_year = bool(getattr(args, "include_unknown_year", False))
+    search = str(getattr(args, "search", "") or "").strip()
+
+    filtered = [
+        game
+        for game in games
+        if _matches_platforms(game, platforms)
+        and _matches_year(game, year_range, include_unknown=include_unknown_year)
+        and _matches_genres(game, genres)
+    ]
+
+    if not search:
+        return filtered
+
+    scored = [
+        (score, game)
+        for game in filtered
+        if (score := _title_search_score(search, game)) > 0
+    ]
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            str(item[1].get("title", "")).casefold(),
+            str(item[1].get("product_id", "")),
+        )
+    )
+    return [game for _, game in scored]
+
+
+def _split_filter_values(values: Any) -> list[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list | tuple | set):
+        return []
+    result: list[str] = []
+    for value in values:
+        for part in str(value).split(","):
+            normalized = part.strip()
+            if normalized:
+                result.append(normalized)
+    return result
+
+
+def _parse_year_range(value: Any) -> tuple[int | None, int | None] | None:
+    if value in (None, ""):
+        return None
+    raw = str(value).strip()
+    if ".." not in raw:
+        if raw.isdigit() and len(raw) == 4:
+            year = int(raw)
+            return year, year
+        raise UsageError("Year filter must be YYYY or START..END")
+
+    start_raw, end_raw = raw.split("..", 1)
+    if ".." in end_raw:
+        raise UsageError("Year filter must contain only one '..' range separator")
+    start = _parse_optional_year(start_raw, "start")
+    end = _parse_optional_year(end_raw, "end")
+    if start is None and end is None:
+        raise UsageError("Year filter must include a start or end year")
+    if start is not None and end is not None and start > end:
+        raise UsageError("Year filter start must be before end")
+    return start, end
+
+
+def _parse_optional_year(value: str, label: str) -> int | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    if not raw.isdigit() or len(raw) != 4:
+        raise UsageError(f"Year filter {label} must be a four-digit year")
+    return int(raw)
+
+
+def _matches_platforms(game: dict[str, Any], platforms: list[str]) -> bool:
     if not platforms:
-        return game
-    return {**game, "platforms": platforms}
+        return True
+    game_platforms = set(normalize_platforms(game.get("platforms", [])))
+    return any(platform in game_platforms for platform in platforms)
+
+
+def _matches_year(
+    game: dict[str, Any],
+    year_range: tuple[int | None, int | None] | None,
+    *,
+    include_unknown: bool,
+) -> bool:
+    if year_range is None:
+        return True
+    year = game.get("release_year")
+    if not isinstance(year, int):
+        return include_unknown
+    start, end = year_range
+    if start is not None and year < start:
+        return False
+    return not (end is not None and year > end)
+
+
+def _matches_genres(game: dict[str, Any], genres: list[str]) -> bool:
+    if not genres:
+        return True
+    game_genres = {str(genre).casefold() for genre in game.get("genres", [])}
+    return any(genre in game_genres for genre in genres)
+
+
+def _title_search_score(query: str, game: dict[str, Any]) -> int:
+    normalized_query = _search_key(query)
+    if not normalized_query:
+        return 0
+
+    title = _search_key(game.get("title", ""))
+    slug = _search_key(str(game.get("slug", "")).replace("_", " ").replace("-", " "))
+    candidates = [candidate for candidate in (title, slug) if candidate]
+    if not candidates:
+        return 0
+
+    scores: list[int] = []
+    for candidate in candidates:
+        if candidate == normalized_query:
+            scores.append(1000)
+        elif candidate.startswith(normalized_query):
+            scores.append(900 - min(len(candidate) - len(normalized_query), 100))
+        elif normalized_query in candidate:
+            scores.append(800 - min(candidate.index(normalized_query), 100))
+        else:
+            ratio = _best_fuzzy_ratio(normalized_query, candidate)
+            if ratio >= 0.78:
+                scores.append(int(ratio * 700))
+    return max(scores, default=0)
+
+
+def _search_key(value: Any) -> str:
+    return " ".join(str(value).casefold().split())
+
+
+def _best_fuzzy_ratio(query: str, candidate: str) -> float:
+    choices = [candidate, *candidate.split()]
+    words = candidate.split()
+    if len(words) > 1:
+        choices.extend(
+            f"{left} {right}" for left, right in zip(words, words[1:], strict=False)
+        )
+    return max(SequenceMatcher(None, query, choice).ratio() for choice in choices)
 
 
 def _normalize_manifest_game(game: dict[str, Any]) -> dict[str, Any]:
@@ -208,6 +377,18 @@ def _format_platforms(platforms: Any) -> str:
     if not isinstance(platforms, list) or not platforms:
         return "-"
     return ", ".join(str(platform) for platform in platforms)
+
+
+def _format_genres(genres: Any) -> str:
+    if not isinstance(genres, list) or not genres:
+        return "-"
+    return ", ".join(str(genre) for genre in genres)
+
+
+def _format_year(year: Any) -> str:
+    if isinstance(year, int):
+        return str(year)
+    return "-"
 
 
 def _parse_timestamp(value: str) -> datetime | None:

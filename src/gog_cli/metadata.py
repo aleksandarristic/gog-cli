@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 _PLATFORM_ORDER = ("windows", "mac", "linux")
@@ -58,3 +59,95 @@ def extract_download_platforms(product_or_cache: dict[str, Any]) -> list[str]:
         )
 
     return normalize_platforms(platform_values)
+
+
+def normalize_genres(*values: Any) -> list[str]:
+    """Normalize genre/category/tag-like metadata into display values."""
+    genres: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for item in _flatten_metadata_values(value):
+            normalized = " ".join(str(item).strip().split())
+            if not normalized:
+                continue
+            key = normalized.casefold()
+            if key not in seen:
+                genres.append(normalized)
+                seen.add(key)
+    return genres
+
+
+def normalize_release_date(value: Any) -> str:
+    """Normalize GOG release date shapes to YYYY-MM-DD where possible."""
+    if isinstance(value, dict):
+        value = value.get("date")
+    if not isinstance(value, str) or not value.strip():
+        return ""
+
+    raw = value.strip()
+    candidates = [
+        raw,
+        raw.replace("Z", "+00:00"),
+        raw.replace(" ", "T"),
+    ]
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(UTC)
+        return parsed.date().isoformat()
+
+    if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+        return raw[:10]
+    if len(raw) >= 4 and raw[:4].isdigit():
+        return raw[:4]
+    return raw
+
+
+def release_year(value: Any) -> int | None:
+    """Return the year from a normalized or raw GOG release date."""
+    release_date = normalize_release_date(value)
+    if len(release_date) >= 4 and release_date[:4].isdigit():
+        return int(release_date[:4])
+    return None
+
+
+def extract_download_summary(product_or_cache: dict[str, Any]) -> dict[str, Any]:
+    """Return list-facing metadata implied by product download metadata."""
+    product = product_or_cache.get("data", product_or_cache)
+    if not isinstance(product, dict):
+        return {}
+
+    summary: dict[str, Any] = {
+        "platforms": extract_download_platforms(product_or_cache),
+        "is_installable": (
+            bool(product["is_installable"]) if "is_installable" in product else None
+        ),
+        "download_type": str(product.get("game_type") or ""),
+    }
+    release_date = normalize_release_date(product.get("release_date"))
+    year = release_year(release_date)
+    if release_date and year is not None and year >= 1995:
+        summary["release_date"] = release_date
+        summary["release_year"] = year
+    return summary
+
+
+def _flatten_metadata_values(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part for part in value.split(",") if part.strip()]
+    if isinstance(value, dict):
+        for key in ("name", "title", "label"):
+            if value.get(key):
+                return [value[key]]
+        return []
+    if isinstance(value, list | tuple | set):
+        items: list[Any] = []
+        for item in value:
+            items.extend(_flatten_metadata_values(item))
+        return items
+    return [value]
