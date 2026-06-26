@@ -10,6 +10,7 @@ from pathlib import Path
 from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
+from gog_cli.refresh import handle_refresh
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     _add_auth_parser(subcommands)
+    _add_refresh_parser(subcommands)
     _add_list_parser(subcommands)
     _add_backup_parser(subcommands)
     _add_sync_parser(subcommands)
@@ -44,6 +46,23 @@ def _add_auth_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     auth_sub.add_parser("logout", help="Log out and remove credentials.").set_defaults(
         handler=handle_auth_logout
     )
+
+
+def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    refresh = subcommands.add_parser("refresh", help="Fetch library and download metadata from GOG.")
+    refresh.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-fetch all download metadata even if recently cached.",
+    )
+    refresh.add_argument(
+        "--format",
+        choices=["human", "json"],
+        default="human",
+        dest="output_format",
+        help="Output format (default: human).",
+    )
+    refresh.set_defaults(handler=handle_refresh)
 
 
 def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
