@@ -204,6 +204,33 @@ def test_plan_sync_unverified_goes_to_verify(tmp_path: Path) -> None:
     assert plan.estimated_bytes == 0
 
 
+def test_plan_sync_partial_goes_to_download(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    spec = make_spec()
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {"1111": [spec]}
+    manifest = {
+        "games": [
+            {
+                "product_id": 1111,
+                "files": [
+                    {
+                        "role": spec.role,
+                        "platform": spec.platform,
+                        "language": spec.language,
+                        **current_record(spec, "partial"),
+                    }
+                ],
+            }
+        ]
+    }
+
+    plan = plan_sync(tmp_path, games, specs, manifest, layout)
+
+    assert len(plan.to_download) == 1
+    assert plan.to_download[0].spec.source_id == spec.source_id
+
+
 def test_plan_sync_platform_filter(tmp_path: Path) -> None:
     layout = BackupLayout(root=tmp_path)
     games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]

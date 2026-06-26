@@ -21,6 +21,8 @@ class FakeTokenStore:
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_at": "2099-01-01T00:00:00+00:00",
+            "username": "tester",
+            "user_id": "123",
         }
         self.saved: list[dict] = []
 
@@ -70,6 +72,7 @@ def test_get_owned_ids_401_triggers_refresh_and_retry() -> None:
 
     assert result == [10, 20]
     assert store.saved[0]["access_token"] == "new_access"
+    assert store.saved[0]["username"] == "tester"
 
 
 @rsps_lib.activate

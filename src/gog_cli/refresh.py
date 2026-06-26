@@ -140,7 +140,10 @@ def handle_refresh(args: argparse.Namespace) -> int:
     else:
         print_human(
             [
-                f"Refreshed {total} games  (+{added} added, -{removed} removed, ~{changed} changed)."
+                (
+                    f"Refreshed {total} games  "
+                    f"(+{added} added, -{removed} removed, ~{changed} changed)."
+                )
             ]
         )
         for msg in failures:

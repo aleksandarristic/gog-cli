@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 import requests
@@ -13,8 +13,8 @@ from gog_cli.errors import AuthError, NetworkError
 _log = log.get_logger(__name__)
 
 _CLIENT_ID = "46899977096215655"
-_CLIENT_SECRET = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9"
-_TOKEN_URL = "https://auth.gog.com/token"
+_CLIENT_SECRET = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9"  # noqa: S105 - Public GOG Galaxy OAuth client credential.
+_TOKEN_URL = "https://auth.gog.com/token"  # noqa: S105 - URL constant, not a secret.
 
 _OWNED_GAMES_URL = "https://embed.gog.com/user/data/games"
 _LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
@@ -63,11 +63,12 @@ class GogApiClient:
 
         data = resp.json()
         expires_at = datetime.fromtimestamp(
-            datetime.now(tz=timezone.utc).timestamp() + data["expires_in"],
-            tz=timezone.utc,
-        ).isoformat()
+            datetime.now(tz=UTC).timestamp() + data["expires_in"],
+            tz=UTC,
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         self._token_store.save_tokens(
             {
+                **tokens,
                 "access_token": data["access_token"],
                 "refresh_token": data["refresh_token"],
                 "expires_at": expires_at,

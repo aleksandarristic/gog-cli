@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from dataclasses import dataclass
+from email.message import Message
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import requests
 
@@ -67,6 +70,7 @@ def handle_backup(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=False)
     selected = _select_games(context.library, args)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _validate_filters(context, selected)
     plan = plan_backup(
         context.destination,
         selected,
@@ -76,7 +80,9 @@ def handle_backup(args: argparse.Namespace) -> int:
         languages=context.languages,
         file_roles=context.file_roles,
     )
-    files_to_process = [file for file in plan.planned if file.action in ("download", "verify")]
+    files_to_process = [
+        file for file in plan.planned if file.action in ("download", "verify", "skip")
+    ]
     _print_backup_plan(plan, len(files_to_process))
 
     if args.dry_run:
@@ -90,6 +96,7 @@ def handle_sync(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=True)
     selected = _select_games(context.library, args)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _validate_filters(context, selected)
     plan = plan_sync(
         context.destination,
         selected,
@@ -219,6 +226,7 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
                 downlink_url = str(file_entry.get("downlink") or "")
                 if not source_id or not downlink_url:
                     continue
+                filename = _download_filename(file_entry, entry, source_id)
                 specs.append(
                     FileSpec(
                         source_id=source_id,
@@ -232,8 +240,11 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
                         expected_md5=None,
                         downlink_url=downlink_url,
                         checksum_url=None,
+                        filename=filename,
                     )
                 )
+    if downloads and not specs:
+        raise ParserError("Download metadata did not contain any supported file entries")
     return specs
 
 
@@ -295,6 +306,11 @@ def _execute_files(
 
     for planned in files_to_process:
         game = file_to_game.get(str(planned.dest), {})
+        if planned.action in {"skip", "verify"}:
+            result = _verify_existing(planned)
+            results.append(_record_and_report(context, command, game, planned, result))
+            continue
+
         try:
             signed_url, checksum_url = context.client.resolve_downlink_url(
                 planned.spec.downlink_url
@@ -317,6 +333,7 @@ def _execute_files(
             results.append(_record_and_report(context, command, game, planned, result))
             continue
 
+        _apply_header_filename(session, signed_url, planned, context.layout, game)
         expected_md5, expected_size = _resolve_checksum(session, checksum_url, planned.spec)
         planned.spec.expected_md5 = expected_md5
         planned.spec.expected_size = expected_size
@@ -344,6 +361,48 @@ def _execute_files(
     if failed:
         return ExitCode.FAILURE
     return ExitCode.SUCCESS
+
+
+def _verify_existing(planned: PlannedFile) -> DownloadResult:
+    if not planned.dest.exists():
+        return DownloadResult(
+            status="failed",
+            path=planned.dest,
+            expected_size=planned.spec.expected_size,
+            failure_code="missing_file",
+            failure_message="Expected file is missing",
+        )
+    if (
+        planned.spec.expected_size is not None
+        and planned.dest.stat().st_size != planned.spec.expected_size
+    ):
+        return DownloadResult(
+            status="failed",
+            path=planned.dest,
+            expected_size=planned.spec.expected_size,
+            failure_code="size_mismatch",
+            failure_message=(
+                f"Expected {planned.spec.expected_size} bytes, got {planned.dest.stat().st_size}"
+            ),
+        )
+    if (
+        planned.spec.expected_md5 is not None
+        and _md5_file(planned.dest) != planned.spec.expected_md5.lower()
+    ):
+        return DownloadResult(
+            status="failed",
+            path=planned.dest,
+            expected_size=planned.spec.expected_size,
+            failure_code="checksum_mismatch",
+            failure_message="MD5 checksum did not match expected value",
+        )
+    return DownloadResult(
+        status="verified",
+        path=planned.dest,
+        bytes_downloaded=planned.dest.stat().st_size,
+        expected_size=planned.spec.expected_size,
+        checksum_verified=planned.spec.expected_md5 is not None,
+    )
 
 
 def _download(
@@ -398,7 +457,7 @@ def _update_manifest(
     manifest.setdefault("created_at", now)
     manifest["updated_at"] = now
     manifest.setdefault("tool", {"name": "gog-cli", "version": __version__})
-    manifest.setdefault("backup_root_marker", "gog-cli-backup")
+    manifest.setdefault("backup_root_marker", f"gog-cli-backup:{uuid4()}")
     games = manifest.setdefault("games", [])
 
     product_id = _game_product_id(game)
@@ -434,12 +493,16 @@ def _update_manifest(
         "size_bytes": result.expected_size or planned.spec.expected_size,
         "expected_size": result.expected_size or planned.spec.expected_size,
         "expected_md5": planned.spec.expected_md5,
+        "checksum": _checksum_record(planned.spec.expected_md5),
         "version": planned.spec.version,
+        "build_id": None,
         "platform": planned.spec.platform,
         "language": planned.spec.language,
         "status": file_status,
+        "download_started_at": now if file_status in {"downloaded", "verified"} else None,
         "downloaded_at": now if file_status in {"downloaded", "verified"} else None,
         "verified_at": now if file_status == "verified" else None,
+        "source_metadata_updated_at": None,
         "failure": _failure_record(result),
     }
 
@@ -476,7 +539,7 @@ def _new_manifest() -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "tool": {"name": "gog-cli", "version": __version__},
-        "backup_root_marker": "gog-cli-backup",
+        "backup_root_marker": f"gog-cli-backup:{uuid4()}",
         "games": [],
     }
 
@@ -492,7 +555,11 @@ def _map_files_to_games(
         slug = sanitize_filename(str(game.get("slug") or product_id))
         game_dir = layout.game_dir(slug)
         for spec in download_specs.get(product_id, []):
-            dest = game_dir / _role_subdir(spec.role) / sanitize_filename(spec.source_id)
+            dest = (
+                game_dir
+                / _role_subdir(spec.role)
+                / sanitize_filename(spec.filename or spec.source_id)
+            )
             mapping[str(dest)] = game
     return mapping
 
@@ -519,6 +586,45 @@ def _resolve_checksum(
         expected_md5 = checksum_md5 or expected_md5
         expected_size = checksum_size or expected_size
     return expected_md5, expected_size
+
+
+def _apply_header_filename(
+    session: requests.Session,
+    signed_url: str,
+    planned: PlannedFile,
+    layout: BackupLayout,
+    game: dict[str, Any],
+) -> None:
+    if planned.spec.filename:
+        return
+    filename = _filename_from_headers(session, signed_url)
+    if not filename:
+        return
+    planned.spec.filename = filename
+    product_id = _game_product_id(game)
+    slug = sanitize_filename(str(game.get("slug") or product_id))
+    planned.dest = (
+        layout.game_dir(slug)
+        / _role_subdir(planned.spec.role)
+        / sanitize_filename(filename)
+    )
+
+
+def _filename_from_headers(session: requests.Session, signed_url: str) -> str | None:
+    try:
+        response = session.head(signed_url, allow_redirects=True, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException:
+        return None
+    header = response.headers.get("Content-Disposition", "")
+    if not header:
+        return None
+    message = Message()
+    message["content-disposition"] = header
+    filename = message.get_filename()
+    if not filename:
+        return None
+    return Path(filename).name
 
 
 def _print_backup_plan(plan: Any, files_to_process: int) -> None:
@@ -553,6 +659,7 @@ def _result_to_json(item: ExecutionResult) -> dict[str, Any]:
         "product_id": _game_product_id(item.game),
         "title": item.game.get("title", ""),
         "source_id": item.file.spec.source_id,
+        "name": item.file.dest.name,
         "role": item.file.spec.role,
         "platform": item.file.spec.platform,
         "language": item.file.spec.language,
@@ -585,6 +692,23 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _download_filename(
+    file_entry: dict[str, Any],
+    entry: dict[str, Any],
+    _source_id: str,
+) -> str | None:
+    for value in (
+        file_entry.get("name"),
+        file_entry.get("filename"),
+        file_entry.get("title"),
+        entry.get("filename"),
+        entry.get("name"),
+    ):
+        if isinstance(value, str) and value.strip():
+            return Path(value.strip()).name
+    return None
+
+
 def _relative_to_root(path: Path, root: Path) -> str:
     try:
         return path.relative_to(root).as_posix()
@@ -596,6 +720,12 @@ def _failure_record(result: DownloadResult) -> dict[str, str | None] | None:
     if result.failure_code is None and result.failure_message is None:
         return None
     return {"code": result.failure_code, "message": result.failure_message}
+
+
+def _checksum_record(expected_md5: str | None) -> dict[str, str] | None:
+    if not expected_md5:
+        return None
+    return {"algorithm": "md5", "value": expected_md5}
 
 
 def _file_id(spec: FileSpec) -> str:
@@ -624,3 +754,29 @@ def _game_status_from_files(files: list[dict[str, Any]]) -> str:
     if statuses <= {"verified"}:
         return "current"
     return "missing"
+
+
+def _md5_file(path: Path) -> str:
+    h = hashlib.md5()  # noqa: S324 - MD5 is used for GOG file integrity metadata.
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _validate_filters(context: _ExecutionContext, selected: list[dict[str, Any]]) -> None:
+    specs = [
+        spec
+        for game in selected
+        for spec in context.download_specs.get(_game_product_id(game), [])
+    ]
+    if context.platforms:
+        available = {spec.platform for spec in specs if spec.platform}
+        missing = sorted(set(context.platforms) - available)
+        if missing:
+            raise UsageError(f"Unknown platform filter: {', '.join(missing)}")
+    if context.languages:
+        available = {spec.language for spec in specs if spec.language}
+        missing = sorted(set(context.languages) - available)
+        if missing:
+            raise UsageError(f"Unknown language filter: {', '.join(missing)}")

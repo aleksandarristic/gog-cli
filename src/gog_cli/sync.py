@@ -61,7 +61,11 @@ def compare_file(spec: FileSpec, manifest_record: dict | None) -> FileComparison
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "size_changed"}
         )
-    if manifest_record.get("expected_md5") != spec.expected_md5:
+    record_md5 = manifest_record.get("expected_md5")
+    checksum = manifest_record.get("checksum")
+    if isinstance(checksum, dict):
+        record_md5 = checksum.get("value")
+    if record_md5 != spec.expected_md5:
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "checksum_changed"}
         )
@@ -112,9 +116,9 @@ def plan_sync(
             comparisons.append(comparison)
 
             dest_dir = _role_dir(layout, game_dir, spec.role)
-            dest = dest_dir / sanitize_filename(spec.source_id)
+            dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
 
-            if comparison.status in ("missing", "stale"):
+            if comparison.status in ("missing", "stale", "partial"):
                 to_download.append(PlannedFile(spec=spec, dest=dest, action="download"))
                 if spec.expected_size:
                     estimated_bytes += spec.expected_size

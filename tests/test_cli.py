@@ -10,6 +10,9 @@ from gog_cli.cli import main
 from gog_cli.layout import BackupLayout
 from gog_cli.state import resolve_app_paths, write_json_file_atomic
 
+_LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
+_PRODUCT_URL_1111 = "https://api.gog.com/products/1111"
+
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -201,7 +204,7 @@ def test_backup_selector_flags_parse(
                 "--exclude",
                 "witcher-3",
                 "--platform",
-                "linux",
+                "windows",
                 "--language",
                 "en",
                 "--yes",
@@ -252,6 +255,50 @@ def test_backup_all_flag_parses(
     _seed_backup_state(tmp_path, monkeypatch)
 
     assert main(["backup", "--destination", str(tmp_path / "backups"), "--dry-run", "--all"]) == 0
+
+
+def test_backup_invalid_platform_filter_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--all",
+                "--platform",
+                "windwos",
+            ]
+        )
+        == 2
+    )
+    assert "Unknown platform" in capsys.readouterr().err
+
+
+def test_backup_malformed_download_metadata_fails_parser(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    write_json_file_atomic(
+        paths.download_cache("1111"),
+        {"data": {"downloads": {"installers": [{"id": "broken", "files": []}]}}},
+    )
+
+    assert main(["backup", "--destination", str(tmp_path / "backups"), "--dry-run", "--all"]) == 7
+    assert "supported file entries" in capsys.readouterr().err
 
 
 def test_sync_dry_run(
@@ -324,7 +371,95 @@ def test_backup_all_yes_downloads_and_writes_manifest(
     assert backed_up.read_bytes() == b"data"
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     assert manifest["games"][0]["files"][0]["status"] == "verified"
+    assert manifest["backup_root_marker"].startswith("gog-cli-backup:")
+    assert "checksum" in manifest["games"][0]["files"][0]
     assert "https://cdn.gog.com" not in BackupLayout(destination).manifest_file.read_text()
+
+
+@rsps_lib.activate
+def test_backup_uses_metadata_filename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache(
+        tmp_path,
+        1111,
+        [_download_entry("setup_witcher", product_id=1111, name="setup_witcher_1.0.exe")],
+    )
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
+
+    assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+
+    backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher_1.0.exe"
+    assert backed_up.exists()
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["source_id"] == "setup_witcher"
+    assert manifest["games"][0]["files"][0]["name"] == "setup_witcher_1.0.exe"
+
+
+@rsps_lib.activate
+def test_backup_falls_back_to_header_filename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache(
+        tmp_path,
+        1111,
+        [_download_entry("setup_witcher", product_id=1111, name=None)],
+    )
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/setup_witcher",
+        header_filename="setup_from_header.exe",
+    )
+
+    assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+    assert (destination / "games" / "witcher_3" / "installers" / "setup_from_header.exe").exists()
+
+
+def test_backup_adopts_existing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"data")
+
+    assert main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["status"] == "verified"
+
+
+def test_backup_existing_file_size_mismatch_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"wrong-size")
+
+    assert main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 1
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["failure"]["code"] == "size_mismatch"
 
 
 @rsps_lib.activate
@@ -361,6 +496,73 @@ def test_sync_all_yes_downloads_only_stale_files(
     assert not (destination / "games" / "witcher_3" / "installers" / "setup_current").exists()
     stale_file = destination / "games" / "witcher_3" / "installers" / "setup_stale"
     assert stale_file.read_bytes() == b"data"
+
+
+def test_sync_verifies_unverified_existing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    _seed_manifest(destination, [_manifest_game(status="downloaded")])
+    existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"data")
+
+    assert main(["sync", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["status"] == "verified"
+
+
+@rsps_lib.activate
+def test_full_refresh_backup_list_backed_up_workflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    rsps_lib.add(
+        rsps_lib.GET,
+        _LIBRARY_URL,
+        json={
+            "page": 1,
+            "totalPages": 1,
+            "products": [
+                {
+                    "id": 1111,
+                    "title": "Witcher 3",
+                    "slug": "witcher_3",
+                    "worksOn": {"Windows": True},
+                }
+            ],
+        },
+    )
+    rsps_lib.add(
+        rsps_lib.GET,
+        _PRODUCT_URL_1111,
+        json={
+            "id": 1111,
+            "downloads": {
+                "installers": [_download_entry("setup_witcher", product_id=1111)],
+                "patches": [],
+                "language_packs": [],
+                "bonus_content": [],
+            },
+        },
+    )
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
+
+    assert main(["refresh"]) == 0
+    assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+    assert main(["list", "backed-up", "--destination", str(destination)]) == 0
+
+    output = capsys.readouterr().out
+    assert "Witcher 3" in output
+    manifest_text = BackupLayout(destination).manifest_file.read_text()
+    assert "https://cdn.gog.com" not in manifest_text
 
 
 def test_list_purchased_missing_cache(
@@ -462,10 +664,15 @@ def _seed_session(home: Path) -> None:
     )
 
 
-def _download_entry(source_id: str, *, product_id: int = 1111, version: str = "1.0") -> dict:
-    return {
+def _download_entry(
+    source_id: str,
+    *,
+    product_id: int = 1111,
+    version: str = "1.0",
+    name: str | None = "",
+) -> dict:
+    entry = {
         "id": f"installer_{source_id}",
-        "name": source_id,
         "os": "windows",
         "language": "en",
         "version": version,
@@ -477,9 +684,17 @@ def _download_entry(source_id: str, *, product_id: int = 1111, version: str = "1
             }
         ],
     }
+    if name is not None:
+        entry["name"] = name or source_id
+    return entry
 
 
-def _manifest_game(source_id: str = "setup_witcher", *, version: str = "1.0") -> dict:
+def _manifest_game(
+    source_id: str = "setup_witcher",
+    *,
+    version: str = "1.0",
+    status: str = "verified",
+) -> dict:
     return {
         "product_id": 1111,
         "title": "Witcher 3",
@@ -498,16 +713,25 @@ def _manifest_game(source_id: str = "setup_witcher", *, version: str = "1.0") ->
                 "version": version,
                 "platform": "windows",
                 "language": "en",
-                "status": "verified",
+                "status": status,
             }
         ],
     }
 
 
-def _mock_download(downlink_url: str) -> None:
+def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:
+    headers = {}
+    if header_filename:
+        headers["Content-Disposition"] = f'attachment; filename="{header_filename}"'
     rsps_lib.add(
         rsps_lib.GET,
         downlink_url,
         json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": ""},
     )
+    if header_filename:
+        rsps_lib.add(
+            rsps_lib.HEAD,
+            "https://cdn.gog.com/setup.exe?token=secret",
+            headers=headers,
+        )
     rsps_lib.add(rsps_lib.GET, "https://cdn.gog.com/setup.exe?token=secret", body=b"data")

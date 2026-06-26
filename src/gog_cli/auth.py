@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -24,9 +24,9 @@ from gog_cli.state import (
 _log = log.get_logger(__name__)
 
 _CLIENT_ID = "46899977096215655"
-_CLIENT_SECRET = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9"
+_CLIENT_SECRET = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9"  # noqa: S105 - Public GOG Galaxy OAuth client credential.
 _REDIRECT_URI = "https://embed.gog.com/on_login_success?origin=client"
-_TOKEN_URL = "https://auth.gog.com/token"
+_TOKEN_URL = "https://auth.gog.com/token"  # noqa: S105 - URL constant, not a secret.
 _USER_DATA_URL = "https://embed.gog.com/userData.json"
 _LOGIN_URL = (
     "https://auth.gog.com/auth"
@@ -45,11 +45,15 @@ class FileTokenStore:
 
     def load_tokens(self) -> dict:
         try:
-            return read_json_file(self._paths.session_state)
+            tokens = read_json_file(self._paths.session_state)
         except StateFileMissingError:
             raise AuthError("Not logged in. Run: gog auth login") from None
         except StateFileCorruptError as exc:
             raise AuthError(f"Session file is corrupt: {exc}") from exc
+        refresh_token = _try_load_keyring()
+        if refresh_token:
+            tokens["refresh_token"] = refresh_token
+        return tokens
 
     def save_tokens(self, tokens: dict) -> None:
         try:
@@ -68,12 +72,22 @@ def _try_save_keyring(refresh_token: str) -> None:
         _log.warning("keyring write failed — using file-only token storage")
 
 
+def _try_load_keyring() -> str | None:
+    try:
+        import keyring  # noqa: PLC0415
+
+        return keyring.get_password("gog-cli", "refresh_token")
+    except Exception:  # noqa: BLE001
+        _log.warning("keyring read failed — using file token storage")
+        return None
+
+
 def _try_delete_keyring() -> None:
     try:
         import keyring  # noqa: PLC0415
         keyring.delete_password("gog-cli", "refresh_token")
     except Exception:  # noqa: BLE001
-        pass
+        _log.debug("keyring delete failed or token was already absent")
 
 
 def _extract_code(pasted: str) -> str:
@@ -143,9 +157,9 @@ def handle_auth_login(_args: argparse.Namespace) -> int:
     user_id = str(token_data.get("user_id", ""))
 
     expires_at = datetime.fromtimestamp(
-        datetime.now(tz=timezone.utc).timestamp() + expires_in,
-        tz=timezone.utc,
-    ).isoformat()
+        datetime.now(tz=UTC).timestamp() + expires_in,
+        tz=UTC,
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     username = _fetch_username(access_token)
 
@@ -179,7 +193,7 @@ def handle_auth_status(_args: argparse.Namespace) -> int:
     except (ValueError, AttributeError):
         expires_at = None
 
-    if expires_at is not None and datetime.now(tz=timezone.utc) > expires_at:
+    if expires_at is not None and datetime.now(tz=UTC) > expires_at:
         print("Token expired. Run: gog auth login", file=sys.stderr)
         return ExitCode.AUTH
 

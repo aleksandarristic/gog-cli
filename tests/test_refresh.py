@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import responses as rsps_lib
@@ -305,7 +305,11 @@ def _make_mock_client_with_responses() -> object:
 
     class _FakeStore:
         def load_tokens(self) -> dict:
-            return {"access_token": "tok", "refresh_token": "ref", "expires_at": "2099-01-01T00:00:00+00:00"}
+            return {
+                "access_token": "tok",
+                "refresh_token": "ref",
+                "expires_at": "2099-01-01T00:00:00+00:00",
+            }
 
         def save_tokens(self, tokens: dict) -> None:
             pass
@@ -345,7 +349,11 @@ def _seed_session(tmp_path: Path) -> None:
 
 def _seed_library(paths: object, games: list[dict]) -> None:
     from gog_cli.state import write_json_file_atomic
-    write_json_file_atomic(paths.library_cache, {"fetched_at": "2026-01-01T00:00:00Z", "games": games})  # type: ignore[attr-defined]
+
+    write_json_file_atomic(
+        paths.library_cache,  # type: ignore[attr-defined]
+        {"fetched_at": "2026-01-01T00:00:00Z", "games": games},
+    )
 
 
 def _mock_library_and_downloads(

@@ -25,6 +25,7 @@ class FileSpec:
     expected_md5: str | None
     downlink_url: str
     checksum_url: str | None
+    filename: str | None = None
 
 
 @dataclass
@@ -99,7 +100,7 @@ def plan_backup(
                 continue
 
             dest_dir = _role_dir(layout, game_dir, spec.role)
-            dest = dest_dir / sanitize_filename(spec.source_id)
+            dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
 
             if dest.exists():
                 planned.append(

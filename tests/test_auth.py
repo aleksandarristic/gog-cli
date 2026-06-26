@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,14 +18,14 @@ from gog_cli.auth import (
     handle_auth_logout,
     handle_auth_status,
 )
-from gog_cli.errors import AuthError, ExitCode, FilesystemError, UsageError
+from gog_cli.errors import AuthError, ExitCode, UsageError
 from gog_cli.state import resolve_app_paths
 
 _TOKEN_URL = "https://auth.gog.com/token"
 _USER_DATA_URL = "https://embed.gog.com/userData.json"
 
-_FUTURE = (datetime.now(tz=timezone.utc) + timedelta(hours=1)).isoformat()
-_PAST = (datetime.now(tz=timezone.utc) - timedelta(hours=1)).isoformat()
+_FUTURE = (datetime.now(tz=UTC) + timedelta(hours=1)).isoformat()
+_PAST = (datetime.now(tz=UTC) - timedelta(hours=1)).isoformat()
 
 _SAMPLE_TOKENS = {
     "access_token": "acc",
@@ -66,6 +66,17 @@ def test_load_tokens_returns_stored_data(tmp_path: Path) -> None:
     assert loaded["access_token"] == "acc"
 
 
+def test_load_tokens_prefers_keyring_refresh_token(tmp_path: Path) -> None:
+    store = _make_store(tmp_path)
+    store.save_tokens(_SAMPLE_TOKENS)
+
+    with patch("gog_cli.auth._try_load_keyring", return_value="keyring_ref"):
+        loaded = store.load_tokens()
+
+    assert loaded["refresh_token"] == "keyring_ref"
+    assert loaded["access_token"] == "acc"
+
+
 def test_save_tokens_writes_json(tmp_path: Path) -> None:
     store = _make_store(tmp_path)
     store.save_tokens(_SAMPLE_TOKENS)
@@ -83,7 +94,6 @@ def test_save_tokens_sets_chmod_600(tmp_path: Path) -> None:
 
 
 def test_save_tokens_keyring_failure_is_silent(tmp_path: Path) -> None:
-    store = _make_store(tmp_path)
     with patch("gog_cli.auth._try_save_keyring", side_effect=Exception("keyring broken")):
         # save_tokens itself should not raise even if _try_save_keyring is patched to raise
         pass
@@ -142,7 +152,7 @@ def test_handle_auth_login_happy_path(
     )
 
     monkeypatch.setattr("sys.stdin", _make_stdin("AUTHCODE\n"))
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("gog_cli.auth._try_save_keyring", lambda _: None)
 
     args = MagicMock()
@@ -166,7 +176,7 @@ def test_handle_auth_login_exchange_failure_raises_auth_error(
     rsps_lib.add(rsps_lib.GET, _TOKEN_URL, status=400, json={"error": "invalid_grant"})
 
     monkeypatch.setattr("sys.stdin", _make_stdin("BADCODE\n"))
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
 
     args = MagicMock()
     with pytest.raises(AuthError, match="Token exchange failed"):
@@ -178,7 +188,7 @@ def test_handle_auth_login_empty_paste_raises_usage_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("sys.stdin", _make_stdin("\n"))
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
 
     args = MagicMock()
     with pytest.raises(UsageError):
@@ -193,7 +203,7 @@ def test_handle_auth_status_logged_in(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _seed_session(tmp_path, _SAMPLE_TOKENS)
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
 
     args = MagicMock()
     result = handle_auth_status(args)
@@ -209,7 +219,7 @@ def test_handle_auth_status_expired_token(
 ) -> None:
     expired_tokens = {**_SAMPLE_TOKENS, "expires_at": _PAST}
     _seed_session(tmp_path, expired_tokens)
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
 
     args = MagicMock()
     result = handle_auth_status(args)
@@ -223,7 +233,7 @@ def test_handle_auth_status_not_logged_in(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
 
     args = MagicMock()
     result = handle_auth_status(args)
@@ -240,7 +250,7 @@ def test_handle_auth_logout_removes_session(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _seed_session(tmp_path, _SAMPLE_TOKENS)
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("gog_cli.auth._try_delete_keyring", lambda: None)
 
     paths = resolve_app_paths({"HOME": str(tmp_path)})
@@ -259,7 +269,7 @@ def test_handle_auth_logout_no_session_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr("gog_cli.auth.resolve_app_paths", lambda: resolve_app_paths({"HOME": str(tmp_path)}))
+    _patch_auth_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("gog_cli.auth._try_delete_keyring", lambda: None)
 
     args = MagicMock()
@@ -272,8 +282,8 @@ def test_handle_auth_logout_no_session_is_idempotent(
 # ── CLI wiring ─────────────────────────────────────────────────────────────────
 
 def test_auth_login_is_routed_from_cli() -> None:
-    from gog_cli.cli import build_parser
     from gog_cli.auth import handle_auth_login
+    from gog_cli.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["auth", "login"])
@@ -281,8 +291,8 @@ def test_auth_login_is_routed_from_cli() -> None:
 
 
 def test_auth_status_is_routed_from_cli() -> None:
-    from gog_cli.cli import build_parser
     from gog_cli.auth import handle_auth_status
+    from gog_cli.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["auth", "status"])
@@ -290,8 +300,8 @@ def test_auth_status_is_routed_from_cli() -> None:
 
 
 def test_auth_logout_is_routed_from_cli() -> None:
-    from gog_cli.cli import build_parser
     from gog_cli.auth import handle_auth_logout
+    from gog_cli.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["auth", "logout"])
@@ -310,3 +320,10 @@ def _seed_session(tmp_path: Path, tokens: dict) -> None:
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     paths.session_state.parent.mkdir(parents=True, exist_ok=True)
     paths.session_state.write_text(json.dumps(tokens), encoding="utf-8")
+
+
+def _patch_auth_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "gog_cli.auth.resolve_app_paths",
+        lambda: resolve_app_paths({"HOME": str(tmp_path)}),
+    )
