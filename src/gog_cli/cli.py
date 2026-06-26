@@ -10,6 +10,7 @@ from pathlib import Path
 from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
+from gog_cli.listing import handle_list_backed_up, handle_list_purchased
 from gog_cli.refresh import handle_refresh
 
 
@@ -49,7 +50,10 @@ def _add_auth_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
 
 
 def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    refresh = subcommands.add_parser("refresh", help="Fetch library and download metadata from GOG.")
+    refresh = subcommands.add_parser(
+        "refresh",
+        help="Fetch library and download metadata from GOG.",
+    )
     refresh.add_argument(
         "--force",
         action="store_true",
@@ -190,16 +194,6 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     _add_selector_flags(sync)
     _add_interaction_flags(sync)
     sync.set_defaults(handler=handle_sync)
-
-
-def handle_list_purchased(_args: argparse.Namespace) -> int:
-    print("gog list purchased is not implemented yet.", file=sys.stderr)
-    return 1
-
-
-def handle_list_backed_up(_args: argparse.Namespace) -> int:
-    print("gog list backed-up is not implemented yet.", file=sys.stderr)
-    return 1
 
 
 def handle_backup(args: argparse.Namespace) -> int:
