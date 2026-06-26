@@ -255,6 +255,67 @@ def test_list_purchased_year_open_ranges_and_comma_genres(
     assert "Modern RTS" not in out
 
 
+def test_list_purchased_genre_filter_omits_unknown_genres_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 1111,
+                "title": "Known Strategy",
+                "slug": "known_strategy",
+                "genres": ["Strategy"],
+            },
+            {"product_id": 2222, "title": "Unknown Genre", "slug": "unknown_genre"},
+        ],
+    )
+
+    assert main(["list", "purchased", "--genre", "strategy"]) == 0
+    out = capsys.readouterr().out
+    assert "Known Strategy" in out
+    assert "Unknown Genre" not in out
+
+
+def test_list_purchased_genre_filter_can_include_unknown_genres(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 1111,
+                "title": "Known Strategy",
+                "slug": "known_strategy",
+                "genres": ["Strategy"],
+            },
+            {"product_id": 2222, "title": "Unknown Genre", "slug": "unknown_genre"},
+        ],
+    )
+
+    assert (
+        main(
+            [
+                "list",
+                "purchased",
+                "--genre",
+                "strategy",
+                "--include-unknown-genre",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "Known Strategy" in out
+    assert "Unknown Genre" in out
+
+
 def test_list_purchased_fuzzy_search_ranks_exact_before_fuzzy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -358,6 +419,18 @@ def test_list_purchased_invalid_year_range_returns_usage(
 
     assert main(["list", "purchased", "--year", "2020..1990"]) == 2
     assert "Year filter start" in capsys.readouterr().err
+
+
+def test_list_purchased_help_includes_filter_examples(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["list", "purchased", "--help"])
+
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "gog list purchased --search witcher" in out
+    assert "--include-unknown-genre" in out
 
 
 def test_list_backed_up_requires_destination() -> None:

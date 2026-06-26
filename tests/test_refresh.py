@@ -91,6 +91,19 @@ def test_normalize_game_no_works_on() -> None:
     assert result["platforms"] == []
 
 
+def test_normalize_game_filters_numeric_tag_ids_from_genres() -> None:
+    result = _normalize_game(
+        {
+            "id": 99,
+            "title": "X",
+            "slug": "x",
+            "category": "Role-playing",
+            "tags": ["206324843"],
+        }
+    )
+    assert result["genres"] == ["Role-playing"]
+
+
 def test_normalize_game_handles_all_false_works_on() -> None:
     result = _normalize_game(
         {

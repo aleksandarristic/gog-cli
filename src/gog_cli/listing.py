@@ -181,6 +181,7 @@ def _apply_purchased_filters(
         for value in _split_filter_values(getattr(args, "genres", []))
         if value
     ]
+    include_unknown_genre = bool(getattr(args, "include_unknown_genre", False))
     year_range = _parse_year_range(getattr(args, "year", None))
     include_unknown_year = bool(getattr(args, "include_unknown_year", False))
     search = str(getattr(args, "search", "") or "").strip()
@@ -190,7 +191,7 @@ def _apply_purchased_filters(
         for game in games
         if _matches_platforms(game, platforms)
         and _matches_year(game, year_range, include_unknown=include_unknown_year)
-        and _matches_genres(game, genres)
+        and _matches_genres(game, genres, include_unknown=include_unknown_genre)
     ]
 
     if not search:
@@ -280,10 +281,17 @@ def _matches_year(
     return not (end is not None and year > end)
 
 
-def _matches_genres(game: dict[str, Any], genres: list[str]) -> bool:
+def _matches_genres(
+    game: dict[str, Any],
+    genres: list[str],
+    *,
+    include_unknown: bool,
+) -> bool:
     if not genres:
         return True
     game_genres = {str(genre).casefold() for genre in game.get("genres", [])}
+    if not game_genres:
+        return include_unknown
     return any(genre in game_genres for genre in genres)
 
 

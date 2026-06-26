@@ -70,6 +70,8 @@ def normalize_genres(*values: Any) -> list[str]:
             normalized = " ".join(str(item).strip().split())
             if not normalized:
                 continue
+            if normalized.isdigit():
+                continue
             key = normalized.casefold()
             if key not in seen:
                 genres.append(normalized)

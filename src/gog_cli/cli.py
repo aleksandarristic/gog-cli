@@ -74,7 +74,19 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     list_cmd = subcommands.add_parser("list", help="List games.")
     list_sub = list_cmd.add_subparsers(dest="list_command", required=True)
 
-    purchased = list_sub.add_parser("purchased", help="List owned GOG games.")
+    purchased = list_sub.add_parser(
+        "purchased",
+        help="List owned GOG games.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  gog list purchased --search witcher
+  gog list purchased --platform windows
+  gog list purchased --year 1998..2005
+  gog list purchased --year 2010..2020 --include-unknown-year
+  gog list purchased --genre strategy
+  gog list purchased --genre strategy --include-unknown-genre
+  gog list purchased --search "baldurs gate" --platform linux --format json""",
+    )
     purchased.add_argument(
         "--format",
         choices=["human", "json"],
@@ -107,6 +119,11 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         dest="genres",
         metavar="GENRE",
         help="Filter by genre/category/tag. Repeatable; comma-separated values allowed.",
+    )
+    purchased.add_argument(
+        "--include-unknown-genre",
+        action="store_true",
+        help="Keep games with unknown genres when --genre is used.",
     )
     purchased.add_argument(
         "--search",
