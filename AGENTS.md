@@ -17,7 +17,7 @@
 
 ## Commands
 - Run tests with `python -m pytest`.
-- Run the CLI locally with `python -m gog_dl.cli --help` or the installed `gog` console script.
+- Run the CLI locally with `python -m gog_cli.cli --help` or the installed `gog` console script.
 
 ## Task management
 - Use `.task-management/` for durable task tracking.

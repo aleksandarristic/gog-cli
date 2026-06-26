@@ -10,7 +10,7 @@ The tool is for personal archival of legitimately owned games. It should not inc
 
 - The Python package should be pip installable.
 - The installed console command should be `gog`.
-- The repository/package may keep the project name `gog-dl`, but user-facing CLI examples should use `gog`.
+- The repository/package name is `gog-cli`; user-facing CLI examples should use `gog`.
 
 ## Core Commands
 
@@ -294,7 +294,7 @@ The Python implementation should follow current CLI application best practices a
 Project structure:
 
 - Use a `src/` layout.
-- Keep the import package named `gog_dl` unless there is a strong reason to rename it.
+- The import package is named `gog_cli`.
 - Keep the installed console command named `gog`.
 - Keep command parsing thin; put business logic in testable modules outside the CLI entrypoint.
 - Keep dependencies conservative and purposeful.

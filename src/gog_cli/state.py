@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Literal
 
-APP_DIR_NAME = "gog-dl"
+APP_DIR_NAME = "gog-cli"
 
 CacheStatus = Literal["fresh", "stale"]
 

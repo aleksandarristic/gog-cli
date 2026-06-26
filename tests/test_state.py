@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gog_dl.state import (
+from gog_cli.state import (
     StateFileCorruptError,
     StateFileInvalidError,
     StateFileMissingError,
@@ -20,9 +20,9 @@ from gog_dl.state import (
 def test_resolve_app_roots_defaults_to_home_relative_paths() -> None:
     roots = resolve_app_roots({"HOME": "/home/alice"})
 
-    assert roots.config.as_posix() == "/home/alice/.config/gog-dl"
-    assert roots.cache.as_posix() == "/home/alice/.cache/gog-dl"
-    assert roots.state.as_posix() == "/home/alice/.local/share/gog-dl"
+    assert roots.config.as_posix() == "/home/alice/.config/gog-cli"
+    assert roots.cache.as_posix() == "/home/alice/.cache/gog-cli"
+    assert roots.state.as_posix() == "/home/alice/.local/share/gog-cli"
 
 
 def test_resolve_app_roots_uses_xdg_base_dir_overrides() -> None:
@@ -35,21 +35,21 @@ def test_resolve_app_roots_uses_xdg_base_dir_overrides() -> None:
         }
     )
 
-    assert roots.config.as_posix() == "/tmp/config/gog-dl"
-    assert roots.cache.as_posix() == "/tmp/cache/gog-dl"
-    assert roots.state.as_posix() == "/tmp/data/gog-dl"
+    assert roots.config.as_posix() == "/tmp/config/gog-cli"
+    assert roots.cache.as_posix() == "/tmp/cache/gog-cli"
+    assert roots.state.as_posix() == "/tmp/data/gog-cli"
 
 
 def test_resolve_app_paths_names_expected_files() -> None:
     paths = resolve_app_paths({"HOME": "/home/alice"})
 
-    assert paths.config_file.as_posix() == "/home/alice/.config/gog-dl/config.toml"
-    assert paths.library_cache.as_posix() == "/home/alice/.cache/gog-dl/library.json"
-    assert paths.download_cache("12345").as_posix() == "/home/alice/.cache/gog-dl/downloads/12345.json"
-    assert paths.session_state.as_posix() == "/home/alice/.local/share/gog-dl/session.json"
-    assert paths.cookies_file.as_posix() == "/home/alice/.local/share/gog-dl/auth/cookies.txt"
-    assert paths.schema_file.as_posix() == "/home/alice/.local/share/gog-dl/schema.json"
-    assert paths.locks_dir.as_posix() == "/home/alice/.local/share/gog-dl/locks"
+    assert paths.config_file.as_posix() == "/home/alice/.config/gog-cli/config.toml"
+    assert paths.library_cache.as_posix() == "/home/alice/.cache/gog-cli/library.json"
+    assert paths.download_cache("12345").as_posix() == "/home/alice/.cache/gog-cli/downloads/12345.json"
+    assert paths.session_state.as_posix() == "/home/alice/.local/share/gog-cli/session.json"
+    assert paths.cookies_file.as_posix() == "/home/alice/.local/share/gog-cli/auth/cookies.txt"
+    assert paths.schema_file.as_posix() == "/home/alice/.local/share/gog-cli/schema.json"
+    assert paths.locks_dir.as_posix() == "/home/alice/.local/share/gog-cli/locks"
 
 
 def test_download_cache_rejects_invalid_product_id() -> None:

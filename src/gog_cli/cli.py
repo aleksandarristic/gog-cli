@@ -1,4 +1,4 @@
-"""Command-line interface for gog-dl."""
+"""Command-line interface for gog-cli."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from gog_dl import __version__
+from gog_cli import __version__
 
 
 def build_parser() -> argparse.ArgumentParser:

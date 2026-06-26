@@ -1,4 +1,4 @@
-"""gog-dl package."""
+"""gog-cli package."""
 
 __all__ = ["__version__"]
 

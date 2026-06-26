@@ -1,4 +1,4 @@
-# gog-dl
+# gog-cli
 
 `gog` is a Python CLI for backing up a user's owned DRM-free GOG game library.
 

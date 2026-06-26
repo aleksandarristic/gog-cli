@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gog_dl.cli import main
+from gog_cli.cli import main
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
