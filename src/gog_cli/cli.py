@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from gog_cli import __version__
+from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
 
 
@@ -24,11 +25,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     subcommands = parser.add_subparsers(dest="command", required=True)
 
+    _add_auth_parser(subcommands)
     _add_list_parser(subcommands)
     _add_backup_parser(subcommands)
     _add_sync_parser(subcommands)
 
     return parser
+
+
+def _add_auth_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    auth = subcommands.add_parser("auth", help="Manage GOG credentials.")
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+
+    auth_sub.add_parser("login", help="Log in to GOG.").set_defaults(handler=handle_auth_login)
+    auth_sub.add_parser("status", help="Show authentication status.").set_defaults(
+        handler=handle_auth_status
+    )
+    auth_sub.add_parser("logout", help="Log out and remove credentials.").set_defaults(
+        handler=handle_auth_logout
+    )
 
 
 def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
