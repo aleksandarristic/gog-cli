@@ -57,8 +57,8 @@ def test_gog_error_caught_in_main(
     def raise_auth_error(_args: object) -> int:
         raise AuthError("session expired")
 
-    monkeypatch.setattr(cli_module, "handle_list_games", raise_auth_error)
-    result = main(["list"])
+    monkeypatch.setattr(cli_module, "handle_list_purchased", raise_auth_error)
+    result = main(["list", "purchased"])
 
     assert result == ExitCode.AUTH
     assert "session expired" in capsys.readouterr().err
@@ -70,8 +70,8 @@ def test_gog_error_message_goes_to_stderr(
     def raise_parser_error(_args: object) -> int:
         raise ParserError("unexpected response shape")
 
-    monkeypatch.setattr(cli_module, "handle_list_games", raise_parser_error)
-    main(["list"])
+    monkeypatch.setattr(cli_module, "handle_list_purchased", raise_parser_error)
+    main(["list", "purchased"])
 
     captured = capsys.readouterr()
     assert "unexpected response shape" in captured.err

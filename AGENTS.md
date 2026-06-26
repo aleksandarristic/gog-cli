@@ -26,7 +26,6 @@
 - Keep larger task details in `.task-management/TASK-####-slug.md`.
 - Move completed tasks to `.task-management/DONE.md` with completion date and notes.
 - Move dropped tasks to `.task-management/REMOVED.md` with removal date and reason.
-- Keep transferring durable decisions from `SPEC.md` and `missing_pieces.md` into task files gradually; do not delete those source docs until the transferred content has a clear home.
 
 ## Multi-agent dispatch
 - Agent roles:
