@@ -45,7 +45,10 @@ def test_resolve_app_paths_names_expected_files() -> None:
 
     assert paths.config_file.as_posix() == "/home/alice/.config/gog-cli/config.toml"
     assert paths.library_cache.as_posix() == "/home/alice/.cache/gog-cli/library.json"
-    assert paths.download_cache("12345").as_posix() == "/home/alice/.cache/gog-cli/downloads/12345.json"
+    assert (
+        paths.download_cache("12345").as_posix()
+        == "/home/alice/.cache/gog-cli/downloads/12345.json"
+    )
     assert paths.session_state.as_posix() == "/home/alice/.local/share/gog-cli/session.json"
     assert paths.cookies_file.as_posix() == "/home/alice/.local/share/gog-cli/auth/cookies.txt"
     assert paths.schema_file.as_posix() == "/home/alice/.local/share/gog-cli/schema.json"
@@ -55,9 +58,9 @@ def test_resolve_app_paths_names_expected_files() -> None:
 def test_download_cache_rejects_invalid_product_id() -> None:
     paths = resolve_app_paths({"HOME": "/home/alice"})
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="product_id"):
         paths.download_cache("")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="product_id"):
         paths.download_cache("../escape")
 
 

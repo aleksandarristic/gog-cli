@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from contextlib import suppress
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -191,4 +191,3 @@ def _parse_timestamp(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
-
