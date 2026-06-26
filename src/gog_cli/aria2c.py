@@ -69,6 +69,8 @@ def download_via_aria2c(
             dest.name,
             "--auto-file-renaming=false",
             "--continue=true",
+            "--split=4",
+            "--max-connection-per-server=4",
         ]
 
         # Headers appear in process args — unavoidable with aria2c's CLI interface.

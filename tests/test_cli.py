@@ -435,7 +435,7 @@ def test_list_purchased_help_includes_filter_examples(
 
 def test_list_backed_up_requires_destination() -> None:
     with pytest.raises(SystemExit) as exc_info:
-        main(["list", "backed-up"])
+        main(["list", "backup"])
     assert exc_info.value.code == 2
 
 
@@ -470,7 +470,7 @@ def test_list_backed_up_human(
         ],
     )
 
-    assert main(["list", "backed-up", "--destination", str(destination)]) == 0
+    assert main(["list", "backup", "--destination", str(destination)]) == 0
     out = capsys.readouterr()
     assert "Witcher 3" in out.out
     assert "Cyberpunk 2077" in out.out
@@ -496,9 +496,9 @@ def test_list_backed_up_format_json(
         ],
     )
 
-    assert main(["list", "backed-up", "--destination", str(destination), "--format", "json"]) == 0
+    assert main(["list", "backup", "--destination", str(destination), "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
-    assert parsed["command"] == "list backed-up"
+    assert parsed["command"] == "list backup"
     assert parsed["data"][0]["status"] == "current"
 
 
@@ -508,7 +508,7 @@ def test_list_backed_up_missing_manifest(
 ) -> None:
     destination = tmp_path / "backups"
 
-    assert main(["list", "backed-up", "--destination", str(destination)]) == 1
+    assert main(["list", "backup", "--destination", str(destination)]) == 1
     assert "Run `gog backup`" in capsys.readouterr().err
 
 
@@ -519,7 +519,7 @@ def test_list_backed_up_unsupported_schema(
     destination = tmp_path / "backups"
     _seed_manifest(destination, [], schema_version=2)
 
-    assert main(["list", "backed-up", "--destination", str(destination)]) == 7
+    assert main(["list", "backup", "--destination", str(destination)]) == 7
     assert "unsupported manifest schema" in capsys.readouterr().err
 
 
@@ -922,7 +922,7 @@ def test_full_refresh_backup_list_backed_up_workflow(
 
     assert main(["refresh"]) == 0
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
-    assert main(["list", "backed-up", "--destination", str(destination)]) == 0
+    assert main(["list", "backup", "--destination", str(destination)]) == 0
 
     output = capsys.readouterr().out
     assert "Witcher 3" in output

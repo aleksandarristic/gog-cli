@@ -132,7 +132,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     )
     purchased.set_defaults(handler=handle_list_purchased)
 
-    backed_up = list_sub.add_parser("backed-up", help="List locally backed-up games.")
+    backed_up = list_sub.add_parser("backup", help="List locally backed-up games.")
     backed_up.add_argument(
         "--destination",
         required=False,

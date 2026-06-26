@@ -440,7 +440,10 @@ def _record_and_report(
     write_json_file_atomic(context.layout.manifest_file, context.manifest)
     if context.output_format == OutputFormat.HUMAN:
         title = game.get("title", _game_product_id(game))
-        print(f"{result.status}  {title} / {planned.spec.role} / {planned.spec.platform or '-'}")
+        line = f"{result.status}  {title} / {planned.spec.role} / {planned.spec.platform or '-'}"
+        if result.status in {"failed", "partial"} and result.failure_message:
+            line += f" — {result.failure_code}: {result.failure_message}"
+        print(line)
     _log.debug("%s recorded %s for %s", command, result.status, planned.spec.source_id)
     return item
 
@@ -627,13 +630,27 @@ def _filename_from_headers(session: requests.Session, signed_url: str) -> str | 
     return Path(filename).name
 
 
+def _human_size(n: int | None) -> str:
+    if n is None:
+        return "?"
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    x = float(n)
+    for unit in units[:-1]:
+        if x < 1024:
+            return f"{x:.1f} {unit}"
+        x /= 1024
+    return f"{x:.1f} {units[-1]}"
+
+
 def _print_backup_plan(plan: Any, files_to_process: int) -> None:
-    print_human(
-        [
-            f"Plan: {files_to_process} files to download, {len(plan.skips)} already present.",
-            f"Estimated bytes: {plan.estimated_bytes}.",
-        ]
-    )
+    print_human([f"Plan: {files_to_process} files to download, {len(plan.skips)} already present."])
+    for pf in plan.downloads:
+        name = pf.spec.filename or pf.spec.source_id
+        role = pf.spec.role
+        platform = pf.spec.platform or "-"
+        size = _human_size(pf.spec.expected_size)
+        print(f"  {name:<55} {role:<12} {platform:<10} {size:>10}")
+    print_human([f"Estimated total: {_human_size(plan.estimated_bytes)}."])
 
 
 def _print_sync_plan(plan: SyncPlan, files_to_process: int) -> None:

@@ -110,7 +110,7 @@ def handle_list_backed_up(args: argparse.Namespace) -> int:
     games = [_normalize_manifest_game(game) for game in manifest["games"]]
 
     if output_format == OutputFormat.JSON:
-        print_json(JsonEnvelope(command="list backed-up", data=games))
+        print_json(JsonEnvelope(command="list backup", data=games))
         return ExitCode.SUCCESS
 
     lines: list[str] = [
