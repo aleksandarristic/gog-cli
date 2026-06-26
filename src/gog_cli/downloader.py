@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -47,6 +48,7 @@ class Downloader:
         expected_size: int | None = None,
         expected_md5: str | None = None,
         resume: bool = True,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> DownloadResult:
         if dest.exists():
             return DownloadResult(
@@ -108,6 +110,8 @@ class Downloader:
                     if chunk:
                         fh.write(chunk)
                         bytes_downloaded += len(chunk)
+                        if progress_callback is not None:
+                            progress_callback(offset + bytes_downloaded, expected_size)
                         if bytes_downloaded - last_logged >= _LOG_INTERVAL:
                             self._log.debug(
                                 "downloaded %d MiB", (offset + bytes_downloaded) // (1024 * 1024)

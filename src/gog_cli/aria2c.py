@@ -44,7 +44,8 @@ def download_via_aria2c(
 ) -> DownloadResult:
     log = logger or logging.getLogger(__name__)
 
-    if dest.exists():
+    aria2_control = Path(str(dest) + ".aria2")
+    if dest.exists() and not aria2_control.exists():
         return DownloadResult(status="skipped", path=dest, expected_size=expected_size)
 
     binary = aria2c_path or check_aria2c()
@@ -68,7 +69,6 @@ def download_via_aria2c(
             dest.name,
             "--auto-file-renaming=false",
             "--continue=true",
-            "--quiet=true",
         ]
 
         # Headers appear in process args — unavoidable with aria2c's CLI interface.
@@ -79,14 +79,7 @@ def download_via_aria2c(
         log.debug("running aria2c for %s", dest.name)
         result = subprocess.run(  # noqa: S603
             cmd,
-            capture_output=True,
-            text=True,
         )
-
-        if result.stdout:
-            log.debug("aria2c stdout: %s", result.stdout.strip())
-        if result.stderr:
-            log.debug("aria2c stderr: %s", result.stderr.strip())
 
         if result.returncode != 0:
             return DownloadResult(

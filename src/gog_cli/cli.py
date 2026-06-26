@@ -135,9 +135,10 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     backed_up = list_sub.add_parser("backed-up", help="List locally backed-up games.")
     backed_up.add_argument(
         "--destination",
-        required=True,
+        required=False,
+        default=None,
         type=Path,
-        help="Backup destination directory to inspect.",
+        help="Backup destination directory to inspect (default: from config).",
     )
     backed_up.add_argument(
         "--format",

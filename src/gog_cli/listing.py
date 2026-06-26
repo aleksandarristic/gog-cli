@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from gog_cli.backup import BackupLayout
+from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, UsageError
 from gog_cli.metadata import extract_download_summary, normalize_genres, normalize_platforms
 from gog_cli.output import (
@@ -85,7 +86,14 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
 
 
 def handle_list_backed_up(args: argparse.Namespace) -> int:
-    layout = BackupLayout(Path(args.destination))
+    paths = resolve_app_paths()
+    config = load_config(paths)
+    destination = getattr(args, "destination", None) or config.destination
+    if destination is None:
+        raise UsageError(
+            "Backup destination is required. Use --destination or set it in config."
+        )
+    layout = BackupLayout(Path(destination).expanduser())
     try:
         manifest = _load_manifest(layout.manifest_file)
     except StateFileMissingError:
