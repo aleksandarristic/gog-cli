@@ -10,6 +10,7 @@ from pathlib import Path
 from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
+from gog_cli.execution import handle_backup, handle_sync
 from gog_cli.listing import handle_list_backed_up, handle_list_purchased
 from gog_cli.refresh import handle_refresh
 
@@ -194,24 +195,6 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     _add_selector_flags(sync)
     _add_interaction_flags(sync)
     sync.set_defaults(handler=handle_sync)
-
-
-def handle_backup(args: argparse.Namespace) -> int:
-    if args.dry_run:
-        dest = args.destination.expanduser() if args.destination else "<configured destination>"
-        print(f"Dry run: would back up selected games to {dest}.")
-        return 0
-    print("gog backup is not implemented yet.", file=sys.stderr)
-    return 1
-
-
-def handle_sync(args: argparse.Namespace) -> int:
-    if args.dry_run:
-        dest = args.destination.expanduser() if args.destination else "<configured destination>"
-        print(f"Dry run: would sync backed-up games at {dest}.")
-        return 0
-    print("gog sync is not implemented yet.", file=sys.stderr)
-    return 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from gog_cli.backup import FileSpec, PlannedFile, _role_dir
+from gog_cli.backup import FileSpec, PlannedFile, _game_product_id, _role_dir
 from gog_cli.layout import BackupLayout, sanitize_filename
 
 ComparisonStatus = Literal["current", "stale", "missing", "partial", "unverified"]
@@ -83,7 +83,7 @@ def plan_sync(
     manifest_games: dict[str, dict] = {}
     for g in manifest.get("games", []):
         for f in g.get("files", []):
-            key = _file_key(f.get("role"), f.get("platform"), f.get("language"))
+            key = _file_key(f.get("role"), f.get("platform"), f.get("language"), f.get("source_id"))
             manifest_games.setdefault(str(g.get("product_id", "")), {})[key] = f
 
     comparisons: list[FileComparison] = []
@@ -93,7 +93,7 @@ def plan_sync(
     estimated_bytes = 0
 
     for game in games:
-        product_id = str(game["id"])
+        product_id = _game_product_id(game)
         slug = sanitize_filename(game.get("slug") or product_id)
         game_dir = layout.game_dir(slug)
         game_manifest = manifest_games.get(product_id, {})
@@ -106,7 +106,7 @@ def plan_sync(
             if file_roles and spec.role not in file_roles:
                 continue
 
-            key = _file_key(spec.role, spec.platform, spec.language)
+            key = _file_key(spec.role, spec.platform, spec.language, spec.source_id)
             record = game_manifest.get(key)
             comparison = compare_file(spec, record)
             comparisons.append(comparison)
@@ -133,5 +133,10 @@ def plan_sync(
     )
 
 
-def _file_key(role: str | None, platform: str | None, language: str | None) -> str:
-    return f"{role}:{platform}:{language}"
+def _file_key(
+    role: str | None,
+    platform: str | None,
+    language: str | None,
+    source_id: str | None,
+) -> str:
+    return f"{role}:{platform}:{language}:{source_id}"

@@ -84,7 +84,7 @@ def plan_backup(
     estimated_bytes = 0
 
     for game in games:
-        product_id = str(game["id"])
+        product_id = _game_product_id(game)
         slug = sanitize_filename(game.get("slug") or product_id)
         game_dir = layout.game_dir(slug)
         product_ids.append(product_id)
@@ -118,8 +118,12 @@ def plan_backup(
     )
 
 
+def _game_product_id(game: dict) -> str:
+    return str(game.get("product_id", game.get("id", "")))
+
+
 def _match_game(game: dict, selector: str) -> bool:
-    if str(game.get("id", "")) == selector:
+    if _game_product_id(game) == selector:
         return True
     if game.get("slug", "") == selector:
         return True
