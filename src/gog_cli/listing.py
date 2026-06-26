@@ -10,6 +10,7 @@ from typing import Any
 
 from gog_cli.backup import BackupLayout
 from gog_cli.errors import ExitCode
+from gog_cli.metadata import extract_download_platforms
 from gog_cli.output import (
     GAME_CURRENT,
     GAME_ERROR,
@@ -45,7 +46,7 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         print(f"Purchased library cache is unreadable: {exc}", file=sys.stderr)
         return ExitCode.PARSER
 
-    games = cache["games"]
+    games = [_enrich_game_platforms(game, paths) for game in cache["games"]]
     fetched_at = cache.get("fetched_at", "")
     output_format = OutputFormat(getattr(args, "output_format", "human"))
 
@@ -139,6 +140,22 @@ def _load_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(games, list):
         raise StateFileInvalidError(f"manifest must contain a games list: {path}")
     return data
+
+
+def _enrich_game_platforms(game: dict[str, Any], paths: Any) -> dict[str, Any]:
+    if game.get("platforms"):
+        return game
+    product_id = game.get("product_id")
+    if product_id is None:
+        return game
+    try:
+        download_cache = read_json_file(paths.download_cache(str(product_id)))
+    except (StateFileMissingError, StateFileCorruptError, StateFileInvalidError):
+        return game
+    platforms = extract_download_platforms(download_cache)
+    if not platforms:
+        return game
+    return {**game, "platforms": platforms}
 
 
 def _normalize_manifest_game(game: dict[str, Any]) -> dict[str, Any]:

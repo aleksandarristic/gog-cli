@@ -69,12 +69,25 @@ def test_load_tokens_returns_stored_data(tmp_path: Path) -> None:
 def test_load_tokens_prefers_keyring_refresh_token(tmp_path: Path) -> None:
     store = _make_store(tmp_path)
     store.save_tokens(_SAMPLE_TOKENS)
+    store = _make_store(tmp_path)
 
     with patch("gog_cli.auth._try_load_keyring", return_value="keyring_ref"):
         loaded = store.load_tokens()
 
     assert loaded["refresh_token"] == "keyring_ref"
     assert loaded["access_token"] == "acc"
+
+
+def test_load_tokens_checks_keyring_once_per_store(tmp_path: Path) -> None:
+    store = _make_store(tmp_path)
+    store.save_tokens(_SAMPLE_TOKENS)
+    store = _make_store(tmp_path)
+
+    with patch("gog_cli.auth._try_load_keyring", return_value=None) as keyring_load:
+        store.load_tokens()
+        store.load_tokens()
+
+    assert keyring_load.call_count == 1
 
 
 def test_save_tokens_writes_json(tmp_path: Path) -> None:

@@ -35,6 +35,24 @@ _PRODUCT_2 = {
 }
 _DOWNLOADS_1 = {"id": 1, "downloads": {"installers": [{"id": "en1"}]}}
 _DOWNLOADS_2 = {"id": 2, "downloads": {"installers": [{"id": "en2"}]}}
+_DOWNLOADS_WITH_PLATFORMS = {
+    "id": 1,
+    "content_system_compatibility": {"windows": True, "osx": True, "linux": False},
+    "downloads": {
+        "installers": [
+            {
+                "id": "installer_windows_en",
+                "os": "windows",
+                "files": [{"id": "en1installer0", "downlink": "https://example.test", "size": 1}],
+            },
+            {
+                "id": "installer_linux_en",
+                "os": "linux",
+                "files": [{"id": "en2installer0", "downlink": "https://example.test", "size": 1}],
+            },
+        ]
+    },
+}
 
 
 # ── _normalize_game ────────────────────────────────────────────────────────────
@@ -55,6 +73,18 @@ def test_normalize_game_fields() -> None:
 
 def test_normalize_game_no_works_on() -> None:
     result = _normalize_game({"id": 99, "title": "X", "slug": "x"})
+    assert result["platforms"] == []
+
+
+def test_normalize_game_handles_all_false_works_on() -> None:
+    result = _normalize_game(
+        {
+            "id": 99,
+            "title": "X",
+            "slug": "x",
+            "worksOn": {"Windows": False, "Mac": False, "Linux": False},
+        }
+    )
     assert result["platforms"] == []
 
 
@@ -166,6 +196,28 @@ def test_handle_refresh_writes_download_caches(
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     assert paths.download_cache("1").exists()
     assert paths.download_cache("2").exists()
+
+
+@rsps_lib.activate
+def test_handle_refresh_enriches_platforms_from_download_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    product = {
+        **_PRODUCT_1,
+        "worksOn": {"Windows": False, "Mac": False, "Linux": False},
+    }
+    _register_library([product])
+    rsps_lib.add(rsps_lib.GET, _PRODUCT_URL_1, json=_DOWNLOADS_WITH_PLATFORMS)
+    _patch_paths(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+
+    result = handle_refresh(_make_args())
+
+    assert result == ExitCode.SUCCESS
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    library = json.loads(paths.library_cache.read_text())
+    assert library["games"][0]["platforms"] == ["windows", "mac", "linux"]
 
 
 @rsps_lib.activate

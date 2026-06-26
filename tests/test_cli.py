@@ -74,6 +74,32 @@ def test_list_purchased_format_json(
     assert parsed["data"][0]["product_id"] == 1111
 
 
+def test_list_purchased_enriches_platforms_from_download_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache(
+        tmp_path,
+        1111,
+        [
+            _download_entry("setup_witcher_windows", product_id=1111),
+            {
+                **_download_entry("setup_witcher_linux", product_id=1111),
+                "os": "linux",
+            },
+        ],
+    )
+
+    assert main(["list", "purchased"]) == 0
+    assert "windows, linux" in capsys.readouterr().out
+
+
 def test_list_backed_up_requires_destination() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["list", "backed-up"])
@@ -180,7 +206,13 @@ def test_backup_dry_run_no_destination(capsys: pytest.CaptureFixture[str]) -> No
     assert "destination is required" in capsys.readouterr().err
 
 
-def test_backup_missing_cache(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+def test_backup_missing_cache(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+
     assert main(["backup", "--destination", str(tmp_path), "--all", "--yes"]) == 1
     assert "gog refresh" in capsys.readouterr().err
 

@@ -10,6 +10,7 @@ from gog_cli import log
 from gog_cli.api import GogApiClient
 from gog_cli.auth import FileTokenStore
 from gog_cli.errors import ExitCode, NetworkError
+from gog_cli.metadata import extract_download_platforms, normalize_platforms
 from gog_cli.output import JsonEnvelope, OutputFormat, print_human, print_json
 from gog_cli.state import (
     StateFileMissingError,
@@ -23,8 +24,7 @@ _log = log.get_logger(__name__)
 
 
 def _normalize_game(product: dict) -> dict:
-    works_on = product.get("worksOn", {})
-    platforms = [p.lower() for p, enabled in works_on.items() if enabled]
+    platforms = normalize_platforms(product.get("worksOn", {}))
     return {
         "product_id": product["id"],
         "title": product.get("title", ""),
@@ -106,6 +106,10 @@ def handle_refresh(args: argparse.Namespace) -> int:
             failures.append(f"{game['title']} ({product_id}): {exc}")
             _log.warning("download fetch failed for %s: %s", product_id, exc)
             continue
+
+        download_platforms = extract_download_platforms(download_data)
+        if download_platforms:
+            game["platforms"] = download_platforms
 
         write_json_file_atomic(
             cache_path,

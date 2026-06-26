@@ -42,6 +42,8 @@ class FileTokenStore:
 
     def __init__(self, paths: AppPaths) -> None:
         self._paths = paths
+        self._keyring_checked = False
+        self._keyring_refresh_token: str | None = None
 
     def load_tokens(self) -> dict:
         try:
@@ -50,9 +52,11 @@ class FileTokenStore:
             raise AuthError("Not logged in. Run: gog auth login") from None
         except StateFileCorruptError as exc:
             raise AuthError(f"Session file is corrupt: {exc}") from exc
-        refresh_token = _try_load_keyring()
-        if refresh_token:
-            tokens["refresh_token"] = refresh_token
+        if not self._keyring_checked:
+            self._keyring_refresh_token = _try_load_keyring()
+            self._keyring_checked = True
+        if self._keyring_refresh_token:
+            tokens["refresh_token"] = self._keyring_refresh_token
         return tokens
 
     def save_tokens(self, tokens: dict) -> None:
@@ -61,6 +65,8 @@ class FileTokenStore:
             os.chmod(self._paths.session_state, 0o600)
         except OSError as exc:
             raise FilesystemError(f"Failed to write session: {exc}") from exc
+        self._keyring_checked = True
+        self._keyring_refresh_token = tokens.get("refresh_token") or None
         _try_save_keyring(tokens.get("refresh_token", ""))
 
 
