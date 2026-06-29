@@ -36,6 +36,7 @@ from gog_cli.state import (
 
 _CACHE_MAX_AGE = timedelta(hours=24)
 _SUPPORTED_MANIFEST_SCHEMA = 1
+_PLATFORM_COLS: list[tuple[str, str]] = [("windows", "W"), ("mac", "M"), ("linux", "L")]
 
 
 def handle_list_purchased(args: argparse.Namespace) -> int:
@@ -59,37 +60,42 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         print_json(JsonEnvelope(command="list purchased", data=games))
         return ExitCode.SUCCESS
 
-    lines: list[str] = [
-        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {'W':>9}  {'M':>9}  {'L':>9}  {'Extras':>9}  {'Total':>9}",
-        f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}",
+    active_platforms = normalize_platforms(getattr(args, "platforms", []))
+    plat_cols: list[tuple[str, str]] = [
+        (k, h) for k, h in _PLATFORM_COLS
+        if not active_platforms or k in active_platforms
     ]
+
+    plat_header = "  ".join(f"{h:>9}" for _, h in plat_cols)
+    plat_sep = "  ".join(f"{'-' * 9}" for _ in plat_cols)
+    header = f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {plat_header}  {'Extras':>9}  {'Total':>9}"
+    sep = f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {plat_sep}  {'-' * 9}  {'-' * 9}"
+    lines: list[str] = [header, sep]
+
     for game in games:
         inst = game.get("installer_sizes") or {}
         extras = game.get("extras_size") or 0
-        total = sum(inst.values()) + extras
+        plat_total = sum(inst.get(k) or 0 for k, _ in plat_cols)
+        total = plat_total + extras
+        plat_cells = "  ".join(f"{_format_size(inst.get(k)):>9}" for k, _ in plat_cols)
         lines.append(
             f"{str(game.get('product_id', '')):>10}  "
             f"{str(game.get('title', '')):<34.34}  "
             f"{_format_year(game.get('release_year')):>4}  "
             f"{_format_genres(game.get('genres', [])):<18.18}  "
-            f"{_format_size(inst.get('windows')):>9}  "
-            f"{_format_size(inst.get('mac')):>9}  "
-            f"{_format_size(inst.get('linux')):>9}  "
+            f"{plat_cells}  "
             f"{_format_size(extras or None):>9}  "
             f"{_format_size(total or None):>9}"
         )
 
-    total_w = sum((game.get("installer_sizes") or {}).get("windows") or 0 for game in games)
-    total_m = sum((game.get("installer_sizes") or {}).get("mac") or 0 for game in games)
-    total_l = sum((game.get("installer_sizes") or {}).get("linux") or 0 for game in games)
+    totals_by_plat = {k: sum((g.get("installer_sizes") or {}).get(k) or 0 for g in games) for k, _ in plat_cols}
     total_e = sum(game.get("extras_size") or 0 for game in games)
-    grand_total = total_w + total_m + total_l + total_e
-    lines.append(f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}")
+    grand_total = sum(totals_by_plat.values()) + total_e
+    plat_total_cells = "  ".join(f"{_format_size(totals_by_plat[k] or None):>9}" for k, _ in plat_cols)
+    lines.append(sep)
     lines.append(
         f"{'Totals':<72}  "
-        f"{_format_size(total_w or None):>9}  "
-        f"{_format_size(total_m or None):>9}  "
-        f"{_format_size(total_l or None):>9}  "
+        f"{plat_total_cells}  "
         f"{_format_size(total_e or None):>9}  "
         f"{_format_size(grand_total or None):>9}"
     )
