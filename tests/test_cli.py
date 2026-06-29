@@ -109,7 +109,9 @@ def test_list_purchased_enriches_platforms_from_download_cache(
     )
 
     assert main(["list", "purchased"]) == 0
-    assert "windows, linux" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    # W and L columns should show sizes (8 B total from two 4-byte installers)
+    assert "8 B" in out   # Total = windows 4 B + linux 4 B
 
 
 def test_list_purchased_keeps_download_installable_in_json_only(
@@ -433,7 +435,7 @@ def test_list_purchased_help_includes_filter_examples(
     assert "--include-unknown-genre" in out
 
 
-def test_list_purchased_sizes_flag_shows_size_columns(
+def test_list_purchased_shows_size_columns(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -461,19 +463,20 @@ def test_list_purchased_sizes_flag_shows_size_columns(
         installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1073741824)],
     )
 
-    assert main(["list", "purchased", "--sizes"]) == 0
+    assert main(["list", "purchased"]) == 0
     out = capsys.readouterr().out
-    assert "Win" in out
-    assert "Mac" in out
-    assert "Lin" in out
+    assert "W" in out
+    assert "M" in out
+    assert "L" in out
     assert "Extras" in out
+    assert "Total" in out
     assert "Platforms" not in out
     assert "1.0 GB" in out
     assert "512.0 MB" in out
     assert "1.0 MB" in out
 
 
-def test_list_purchased_sizes_shows_dash_when_no_download_cache(
+def test_list_purchased_shows_dash_for_missing_sizes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -484,13 +487,13 @@ def test_list_purchased_sizes_shows_dash_when_no_download_cache(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
     )
 
-    assert main(["list", "purchased", "--sizes"]) == 0
+    assert main(["list", "purchased"]) == 0
     out = capsys.readouterr().out
-    assert "Win" in out
+    assert "W" in out
     assert out.count("-") >= 4
 
 
-def test_list_purchased_sizes_included_in_json(
+def test_list_purchased_size_fields_in_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -574,7 +577,7 @@ def test_list_purchased_sort_size(
         _sized_installer("b1", product_id=2222, os_name="windows", size=10737418240),
     ])
 
-    assert main(["list", "purchased", "--sort", "size", "--sizes"]) == 0
+    assert main(["list", "purchased", "--sort", "size"]) == 0
     out = capsys.readouterr().out
     assert out.index("Big Game") < out.index("Small Game")
 

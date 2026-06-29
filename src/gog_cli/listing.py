@@ -59,37 +59,25 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         print_json(JsonEnvelope(command="list purchased", data=games))
         return ExitCode.SUCCESS
 
-    show_sizes = bool(getattr(args, "sizes", False))
-    if show_sizes:
-        lines: list[str] = [
-            f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {'Win':>8}  {'Mac':>8}  {'Lin':>8}  {'Extras':>8}",
-            f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 8}  {'-' * 8}  {'-' * 8}  {'-' * 8}",
-        ]
-        for game in games:
-            inst = game.get("installer_sizes") or {}
-            lines.append(
-                f"{str(game.get('product_id', '')):>10}  "
-                f"{str(game.get('title', '')):<34.34}  "
-                f"{_format_year(game.get('release_year')):>4}  "
-                f"{_format_genres(game.get('genres', [])):<18.18}  "
-                f"{_format_size(inst.get('windows')):>8}  "
-                f"{_format_size(inst.get('mac')):>8}  "
-                f"{_format_size(inst.get('linux')):>8}  "
-                f"{_format_size(game.get('extras_size')):>8}"
-            )
-    else:
-        lines = [
-            f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  Platforms",
-            f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 25}",
-        ]
-        for game in games:
-            lines.append(
-                f"{str(game.get('product_id', '')):>10}  "
-                f"{str(game.get('title', '')):<34.34}  "
-                f"{_format_year(game.get('release_year')):>4}  "
-                f"{_format_genres(game.get('genres', [])):<18.18}  "
-                f"{_format_platforms(game.get('platforms', []))}"
-            )
+    lines: list[str] = [
+        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {'W':>9}  {'M':>9}  {'L':>9}  {'Extras':>9}  {'Total':>9}",
+        f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}",
+    ]
+    for game in games:
+        inst = game.get("installer_sizes") or {}
+        extras = game.get("extras_size") or 0
+        total = sum(inst.values()) + extras
+        lines.append(
+            f"{str(game.get('product_id', '')):>10}  "
+            f"{str(game.get('title', '')):<34.34}  "
+            f"{_format_year(game.get('release_year')):>4}  "
+            f"{_format_genres(game.get('genres', [])):<18.18}  "
+            f"{_format_size(inst.get('windows')):>9}  "
+            f"{_format_size(inst.get('mac')):>9}  "
+            f"{_format_size(inst.get('linux')):>9}  "
+            f"{_format_size(extras or None):>9}  "
+            f"{_format_size(total or None):>9}"
+        )
 
     cache_age = _format_cache_age(fetched_at)
     lines.append(f"{len(games)} games. Cache age: {cache_age}.")

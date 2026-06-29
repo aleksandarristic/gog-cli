@@ -41,7 +41,6 @@ _LIST_EXAMPLES = """examples:
 _LIST_PURCHASED_EXAMPLES = """examples:
   gog list purchased --search witcher
   gog list purchased --platform windows
-  gog list purchased --sizes
   gog list purchased --year 1998..2005
   gog list purchased --year 2010..2020 --include-unknown-year
   gog list purchased --genre strategy
@@ -234,11 +233,6 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         "--search",
         metavar="TEXT",
         help="Fuzzy title search.",
-    )
-    purchased.add_argument(
-        "--sizes",
-        action="store_true",
-        help="Show installer sizes per platform and extras size instead of platform names.",
     )
     purchased.add_argument(
         "--sort",
