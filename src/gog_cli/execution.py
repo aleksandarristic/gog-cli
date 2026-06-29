@@ -29,8 +29,9 @@ from gog_cli.config import load_config
 from gog_cli.downloader import Downloader, DownloadResult, fetch_checksum_xml
 from gog_cli.errors import (
     AuthError,
+    CacheError,
     ExitCode,
-    GogError,
+    FilesystemError,
     NetworkError,
     ParserError,
     UsageError,
@@ -112,6 +113,17 @@ def handle_backup(args: argparse.Namespace) -> int:
     return _execute_files("backup", context, selected, files_to_process)
 
 
+def handle_plan(args: argparse.Namespace) -> int:
+    positional_selectors = list(getattr(args, "selectors", []) or [])
+    if positional_selectors:
+        args.games = [*(getattr(args, "games", []) or []), *positional_selectors]
+    args.dry_run = True
+    args.yes = False
+    args.no_interactive = True
+    args.downloader = "direct"
+    return handle_backup(args)
+
+
 def handle_sync(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=True)
     selected = _select_games(context.library, args)
@@ -164,6 +176,8 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
             "Backup destination is required. Use --destination or GOG_CLI_DESTINATION."
         )
     destination = Path(destination).expanduser()
+    if destination.exists() and not destination.is_dir():
+        raise FilesystemError(f"Backup destination is not a directory: {destination}")
     layout = BackupLayout(destination)
 
     library_cache = _load_library_cache(paths.library_cache)
@@ -196,7 +210,7 @@ def _load_library_cache(path: Path) -> dict[str, Any]:
     try:
         data = read_json_file(path)
     except StateFileMissingError:
-        raise GogError("Purchased library cache is missing. Run `gog refresh`.") from None
+        raise CacheError("Purchased library cache is missing. Run `gog refresh`.") from None
     except StateFileCorruptError as exc:
         raise ParserError(f"Purchased library cache is corrupt: {exc}") from exc
     if not isinstance(data, dict) or not isinstance(data.get("games"), list):
@@ -212,7 +226,7 @@ def _load_download_specs(paths: Any, library: list[dict[str, Any]]) -> dict[str,
         try:
             data = read_json_file(cache_path)
         except StateFileMissingError:
-            raise GogError(
+            raise CacheError(
                 f"Download metadata cache is missing for {game.get('title', product_id)}. "
                 "Run `gog refresh`."
             ) from None
@@ -538,7 +552,7 @@ def _read_manifest(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:
     except StateFileMissingError:
         if missing_ok:
             return _new_manifest()
-        raise GogError("Backup manifest is missing. Run `gog backup` first.") from None
+        raise FilesystemError("Backup manifest is missing. Run `gog backup` first.") from None
     except StateFileCorruptError as exc:
         raise ParserError(f"Backup manifest is corrupt: {exc}") from exc
     if not isinstance(data, dict):

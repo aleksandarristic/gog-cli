@@ -7,6 +7,7 @@ import pytest
 import responses as rsps_lib
 
 from gog_cli.cli import main
+from gog_cli.errors import ExitCode
 from gog_cli.layout import BackupLayout
 from gog_cli.state import resolve_app_paths, write_json_file_atomic
 
@@ -50,7 +51,6 @@ def test_list_purchased_human(
                 "is_installable": True,
             },
         ],
-        fetched_at="2026-06-26T10:00:00Z",
     )
 
     assert main(["list", "purchased"]) == 0
@@ -433,10 +433,15 @@ def test_list_purchased_help_includes_filter_examples(
     assert "--include-unknown-genre" in out
 
 
-def test_list_backed_up_requires_destination() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["list", "backup"])
-    assert exc_info.value.code == 2
+def test_list_backed_up_requires_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+
+    assert main(["list", "backup"]) == ExitCode.USAGE
+    assert "destination is required" in capsys.readouterr().err
 
 
 def test_list_backed_up_human(
@@ -534,7 +539,13 @@ def test_backup_dry_run(
     assert "Backup plan" in capsys.readouterr().out
 
 
-def test_backup_dry_run_no_destination(capsys: pytest.CaptureFixture[str]) -> None:
+def test_backup_dry_run_no_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+
     assert main(["backup", "--dry-run"]) == 2
     assert "destination is required" in capsys.readouterr().err
 
@@ -546,7 +557,7 @@ def test_backup_missing_cache(
 ) -> None:
     _set_home(monkeypatch, tmp_path)
 
-    assert main(["backup", "--destination", str(tmp_path), "--all", "--yes"]) == 1
+    assert main(["backup", "--destination", str(tmp_path), "--all", "--yes"]) == ExitCode.CACHE
     assert "gog refresh" in capsys.readouterr().err
 
 
@@ -641,7 +652,7 @@ def test_backup_invalid_platform_filter_fails(
                 "windwos",
             ]
         )
-        == 2
+        == ExitCode.USAGE
     )
     assert "Unknown platform" in capsys.readouterr().err
 
@@ -715,7 +726,10 @@ def test_sync_missing_manifest(
 ) -> None:
     _seed_backup_state(tmp_path, monkeypatch)
 
-    assert main(["sync", "--destination", str(tmp_path / "backups"), "--all", "--yes"]) == 1
+    assert (
+        main(["sync", "--destination", str(tmp_path / "backups"), "--all", "--yes"])
+        == ExitCode.FILESYSTEM
+    )
     assert "gog backup" in capsys.readouterr().err
 
 
@@ -746,6 +760,21 @@ def test_sync_selector_flags_parse(
 
 def test_no_interactive_flag_parses(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["backup", "--dry-run", "--no-interactive", "--game", "witcher-3"]) == 2
+
+
+def test_backup_auth_failure_returns_auth_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"])
+        == ExitCode.AUTH
+    )
+    assert "Authentication failed" in capsys.readouterr().err
 
 
 @rsps_lib.activate
@@ -1255,7 +1284,7 @@ def _seed_library_cache(
     home: Path,
     games: list[dict],
     *,
-    fetched_at: str = "2026-06-26T10:00:00Z",
+    fetched_at: str = "2099-01-01T00:00:00Z",
 ) -> None:
     paths = resolve_app_paths({"HOME": str(home)})
     write_json_file_atomic(paths.library_cache, {"fetched_at": fetched_at, "games": games})
@@ -1408,7 +1437,7 @@ def test_backup_check_free_space_fails_when_insufficient(
     monkeypatch.setattr(shutil, "disk_usage", lambda path: fake_usage)
 
     result = main(["backup", "--destination", str(destination), "--all", "--check-free-space"])
-    assert result == 6
+    assert result == ExitCode.FILESYSTEM
     assert "Insufficient disk space" in capsys.readouterr().err
 
 
@@ -1566,6 +1595,172 @@ def test_backup_dry_run_json_format(
     assert "actions" in parsed["data"]
     assert "skipped" in parsed["data"]
     assert parsed["data"]["summary"]["selected_games"] == 2
+
+
+# --- TASK-0045: plan subcommand ---
+
+
+def test_plan_matches_backup_dry_run_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+
+    assert main(["backup", "--destination", str(destination), "--dry-run", "--all"]) == 0
+    backup_out = capsys.readouterr().out
+
+    assert main(["plan", "--destination", str(destination), "--all"]) == 0
+    plan_out = capsys.readouterr().out
+
+    assert plan_out == backup_out
+
+
+def test_plan_positional_selector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 2222,
+                "title": "Cyberpunk 2077",
+                "slug": "cyberpunk-2077",
+                "platforms": [],
+            }
+        ],
+    )
+    _seed_download_cache(tmp_path, 2222, [_download_entry("setup_cyberpunk", product_id=2222)])
+
+    assert main(["plan", "--destination", str(tmp_path / "backups"), "cyberpunk-2077"]) == 0
+    out = capsys.readouterr().out
+    assert "cyberpunk-2077" in out
+    assert "Cyberpunk 2077" in out
+
+
+def test_plan_summary_flag_omits_per_game_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert main(["plan", "--destination", str(tmp_path / "backups"), "--all", "--summary"]) == 0
+    out = capsys.readouterr().out
+    assert "Backup plan" in out
+    assert "witcher_3" not in out
+
+
+def test_plan_json_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(["plan", "--destination", str(tmp_path / "backups"), "--all", "--format", "json"])
+        == 0
+    )
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["command"] == "backup plan"
+    assert parsed["data"]["mode"] == "dry_run"
+    assert parsed["data"]["summary"]["selected_games"] == 2
+
+
+def test_plan_check_free_space_fails_when_insufficient(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import shutil
+
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+    destination.mkdir(parents=True, exist_ok=True)
+
+    fake_usage = type("du", (), {"free": 1, "used": 999, "total": 1000})()
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: fake_usage)
+
+    assert (
+        main(["plan", "--destination", str(destination), "--all", "--check-free-space"])
+        == ExitCode.FILESYSTEM
+    )
+    assert "Insufficient disk space" in capsys.readouterr().err
+
+
+def test_plan_changed_only_omits_complete_games(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+    witcher_file = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    witcher_file.parent.mkdir(parents=True, exist_ok=True)
+    witcher_file.write_text("data")
+
+    assert main(["plan", "--destination", str(destination), "--all", "--changed-only"]) == 0
+    out = capsys.readouterr().out
+    assert "witcher_3" not in out
+    assert "cyberpunk_2077" in out
+
+
+def test_plan_help_lists_plan_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["plan", "--help"])
+
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--changed-only" in out
+    assert "--check-free-space" in out
+    assert "GAME" in out
+
+
+def test_plan_invalid_args_return_usage_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    result = main(["plan", "--destination", str(tmp_path / "backups"), "--all", "witcher_3"])
+
+    assert result == ExitCode.USAGE
+    assert "--all and --game" in capsys.readouterr().err
+
+
+def test_plan_missing_library_cache_returns_cache_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+
+    assert main(["plan", "--destination", str(tmp_path / "backups"), "--all"]) == ExitCode.CACHE
+    assert "gog refresh" in capsys.readouterr().err
+
+
+def test_plan_missing_download_cache_returns_cache_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+
+    assert (
+        main(["plan", "--destination", str(tmp_path / "backups"), "--game", "witcher_3"])
+        == ExitCode.CACHE
+    )
+    assert "Download metadata cache is missing" in capsys.readouterr().err
 
 
 def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:

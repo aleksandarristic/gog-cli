@@ -6,6 +6,7 @@ import gog_cli.cli as cli_module
 from gog_cli.cli import main
 from gog_cli.errors import (
     AuthError,
+    CacheError,
     ExitCode,
     FilesystemError,
     GogError,
@@ -25,6 +26,7 @@ def test_exit_code_values() -> None:
     assert ExitCode.VERIFICATION == 5
     assert ExitCode.FILESYSTEM == 6
     assert ExitCode.PARSER == 7
+    assert ExitCode.CACHE == 8
 
 
 def test_each_error_has_correct_exit_code() -> None:
@@ -35,6 +37,7 @@ def test_each_error_has_correct_exit_code() -> None:
     assert VerificationError().exit_code == ExitCode.VERIFICATION
     assert FilesystemError().exit_code == ExitCode.FILESYSTEM
     assert ParserError().exit_code == ExitCode.PARSER
+    assert CacheError().exit_code == ExitCode.CACHE
 
 
 def test_gog_errors_are_exceptions() -> None:
@@ -46,6 +49,7 @@ def test_gog_errors_are_exceptions() -> None:
         VerificationError,
         FilesystemError,
         ParserError,
+        CacheError,
     ):
         assert issubclass(cls, Exception)
         assert issubclass(cls, GogError)

@@ -10,7 +10,7 @@ from pathlib import Path
 from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
-from gog_cli.execution import handle_backup, handle_sync
+from gog_cli.execution import handle_backup, handle_plan, handle_sync
 from gog_cli.listing import handle_list_backed_up, handle_list_purchased, handle_search_catalog
 from gog_cli.refresh import handle_refresh
 
@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_refresh_parser(subcommands)
     _add_list_parser(subcommands)
     _add_search_parser(subcommands)
+    _add_plan_parser(subcommands)
     _add_backup_parser(subcommands)
     _add_sync_parser(subcommands)
 
@@ -306,6 +307,67 @@ def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type
     _add_selector_flags(backup)
     _add_interaction_flags(backup)
     backup.set_defaults(handler=handle_backup)
+
+
+def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    plan = subcommands.add_parser(
+        "plan",
+        help="Show the backup plan without downloading files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  gog plan --all --destination /backups/gog
+  gog plan cyberpunk-2077 --destination /backups/gog
+  gog plan --all --summary
+  gog plan --all --format json""",
+    )
+    plan.add_argument(
+        "selectors",
+        nargs="*",
+        metavar="GAME",
+        help="Game selector by product id, slug, or exact title.",
+    )
+    plan.add_argument(
+        "--destination",
+        type=Path,
+        help="Directory where game backups should be stored.",
+    )
+    plan.add_argument(
+        "--format",
+        choices=["human", "json"],
+        default="human",
+        dest="output_format",
+        help="Output format (default: human).",
+    )
+    plan.add_argument(
+        "--check-free-space",
+        action="store_true",
+        dest="check_free_space",
+        help="Fail if available disk space is less than the estimated download size.",
+    )
+    plan.add_argument(
+        "--storage",
+        action="store_true",
+        help="Show disk usage section in plan output.",
+    )
+    plan.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print summary only, omit per-game file detail.",
+    )
+    plan.add_argument(
+        "--changed-only",
+        action="store_true",
+        dest="changed_only",
+        help="Show only games with pending downloads in per-game detail.",
+    )
+    plan.add_argument(
+        "--explain-skips",
+        action="store_true",
+        dest="explain_skips",
+        help="Annotate skipped files with their filter reason.",
+    )
+    _add_selector_flags(plan)
+    plan.set_defaults(handler=handle_plan)
 
 
 def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
