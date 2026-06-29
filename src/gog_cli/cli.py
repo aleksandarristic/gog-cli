@@ -14,11 +14,79 @@ from gog_cli.execution import handle_backup, handle_plan, handle_sync
 from gog_cli.listing import handle_list_backed_up, handle_list_purchased, handle_search_catalog
 from gog_cli.refresh import handle_refresh
 
+_TOP_LEVEL_EXAMPLES = """examples:
+  gog auth login
+  gog refresh
+  gog list purchased --search witcher
+  gog plan --destination /backups/gog --all --storage
+  gog backup --destination /backups/gog --games-from games.txt --downloader aria2c --yes
+  gog sync --destination /backups/gog --all --dry-run"""
+
+_AUTH_EXAMPLES = """examples:
+  gog auth login
+  gog auth status
+  gog auth logout"""
+
+_REFRESH_EXAMPLES = """examples:
+  gog refresh
+  gog refresh --force
+  gog refresh --format json"""
+
+_LIST_EXAMPLES = """examples:
+  gog list purchased
+  gog list purchased --search witcher --platform linux
+  gog list backup --destination /backups/gog
+  gog list backup --destination /backups/gog --format json"""
+
+_LIST_PURCHASED_EXAMPLES = """examples:
+  gog list purchased --search witcher
+  gog list purchased --platform windows
+  gog list purchased --year 1998..2005
+  gog list purchased --year 2010..2020 --include-unknown-year
+  gog list purchased --genre strategy
+  gog list purchased --genre strategy --include-unknown-genre
+  gog list purchased --search "baldurs gate" --platform linux --format json"""
+
+_LIST_BACKUP_EXAMPLES = """examples:
+  gog list backup --destination /backups/gog
+  gog list backup --destination /backups/gog --format json"""
+
+_SEARCH_EXAMPLES = """examples:
+  gog search witcher
+  gog search "baldurs gate" --platform windows
+  gog search strategy --year 2000..2010
+  gog search rpg --genre "role-playing" --format json"""
+
+_PLAN_EXAMPLES = """examples:
+  gog plan --destination /backups/gog --all --storage
+  gog plan --destination /backups/gog --all --check-free-space
+  gog plan --destination /backups/gog --games-from games.txt --summary
+  gog plan --destination /backups/gog cyberpunk-2077
+  gog plan --destination /backups/gog --all --format json"""
+
+_BACKUP_EXAMPLES = """examples:
+  gog backup --destination /backups/gog --all
+  gog backup --destination /backups/gog --all --yes
+  gog backup --destination /backups/gog --games-from games.txt --downloader aria2c --yes
+  gog backup --destination /backups/gog --platform linux --language en --all --yes
+  gog backup --destination /backups/gog --all --format json"""
+
+_SYNC_EXAMPLES = """examples:
+  gog sync --destination /backups/gog --all
+  gog sync --destination /backups/gog --all --dry-run
+  gog sync --destination /backups/gog --games-from games.txt --yes"""
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gog",
-        description="Back up owned DRM-free GOG games.",
+        description=(
+            "Back up owned DRM-free GOG games. Commands are explicit and "
+            "non-destructive by default; backup and sync print a dry-run plan "
+            "unless --yes is passed."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_TOP_LEVEL_EXAMPLES,
     )
     parser.add_argument(
         "--version",
@@ -40,14 +108,39 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_auth_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    auth = subcommands.add_parser("auth", help="Manage GOG credentials.")
+    auth = subcommands.add_parser(
+        "auth",
+        help="Manage GOG credentials.",
+        description=(
+            "Manage the local GOG session used by refresh and download commands. "
+            "Tokens are stored in app state, not inside backup destinations."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_AUTH_EXAMPLES,
+    )
     auth_sub = auth.add_subparsers(dest="auth_command", required=True)
 
-    auth_sub.add_parser("login", help="Log in to GOG.").set_defaults(handler=handle_auth_login)
-    auth_sub.add_parser("status", help="Show authentication status.").set_defaults(
-        handler=handle_auth_status
-    )
-    auth_sub.add_parser("logout", help="Log out and remove credentials.").set_defaults(
+    auth_sub.add_parser(
+        "login",
+        help="Log in to GOG.",
+        description="Start the browser-based GOG login flow and store a local session.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n  gog auth login",
+    ).set_defaults(handler=handle_auth_login)
+    auth_sub.add_parser(
+        "status",
+        help="Show authentication status.",
+        description="Show whether a local GOG session is available and when it expires.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n  gog auth status",
+    ).set_defaults(handler=handle_auth_status)
+    auth_sub.add_parser(
+        "logout",
+        help="Log out and remove credentials.",
+        description="Remove the local GOG session from app state.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n  gog auth logout",
+    ).set_defaults(
         handler=handle_auth_logout
     )
 
@@ -56,6 +149,12 @@ def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # typ
     refresh = subcommands.add_parser(
         "refresh",
         help="Fetch library and download metadata from GOG.",
+        description=(
+            "Fetch purchased-library and download metadata into the local cache. "
+            "This does not download game installers."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_REFRESH_EXAMPLES,
     )
     refresh.add_argument(
         "--force",
@@ -73,21 +172,24 @@ def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # typ
 
 
 def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    list_cmd = subcommands.add_parser("list", help="List games.")
+    list_cmd = subcommands.add_parser(
+        "list",
+        help="List games.",
+        description="List cached purchased games or games already recorded in a backup manifest.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_LIST_EXAMPLES,
+    )
     list_sub = list_cmd.add_subparsers(dest="list_command", required=True)
 
     purchased = list_sub.add_parser(
         "purchased",
         help="List owned GOG games.",
+        description=(
+            "List owned games from the local cache written by `gog refresh`. "
+            "This command does not contact GOG."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""examples:
-  gog list purchased --search witcher
-  gog list purchased --platform windows
-  gog list purchased --year 1998..2005
-  gog list purchased --year 2010..2020 --include-unknown-year
-  gog list purchased --genre strategy
-  gog list purchased --genre strategy --include-unknown-genre
-  gog list purchased --search "baldurs gate" --platform linux --format json""",
+        epilog=_LIST_PURCHASED_EXAMPLES,
     )
     purchased.add_argument(
         "--format",
@@ -134,7 +236,13 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     )
     purchased.set_defaults(handler=handle_list_purchased)
 
-    backed_up = list_sub.add_parser("backup", help="List locally backed-up games.")
+    backed_up = list_sub.add_parser(
+        "backup",
+        help="List locally backed-up games.",
+        description="Read the backup manifest at a destination and summarize recorded games/files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_LIST_BACKUP_EXAMPLES,
+    )
     backed_up.add_argument(
         "--destination",
         required=False,
@@ -156,12 +264,12 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
     search = subcommands.add_parser(
         "search",
         help="Search the public GOG catalog.",
+        description=(
+            "Search public GOG catalog data. Results are public catalog entries; "
+            "use `gog list purchased` for owned-library data."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""examples:
-  gog search witcher
-  gog search "baldurs gate" --platform windows
-  gog search strategy --year 2000..2010
-  gog search rpg --genre "role-playing" --format json""",
+        epilog=_SEARCH_EXAMPLES,
     )
     search.add_argument("query", help="Search query (title keywords).")
     search.add_argument(
@@ -267,7 +375,16 @@ def _add_interaction_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    backup = subcommands.add_parser("backup", help="Back up owned GOG games to a local directory.")
+    backup = subcommands.add_parser(
+        "backup",
+        help="Back up owned GOG games to a local directory.",
+        description=(
+            "Plan or execute a local backup. Without --yes this command prints "
+            "a dry-run plan and exits without downloading or modifying backup files."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_BACKUP_EXAMPLES,
+    )
     backup.add_argument(
         "--destination",
         type=Path,
@@ -322,12 +439,13 @@ def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     plan = subcommands.add_parser(
         "plan",
         help="Show the backup plan without downloading files.",
+        description=(
+            "Show a non-destructive backup plan. This is equivalent to "
+            "`gog backup --dry-run` and does not download files or create backup "
+            "directories."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""examples:
-  gog plan --all --destination /backups/gog
-  gog plan cyberpunk-2077 --destination /backups/gog
-  gog plan --all --summary
-  gog plan --all --format json""",
+        epilog=_PLAN_EXAMPLES,
     )
     plan.add_argument(
         "selectors",
@@ -380,7 +498,17 @@ def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
 
 
 def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    sync = subcommands.add_parser("sync", help="Update stale local backups.")
+    sync = subcommands.add_parser(
+        "sync",
+        help="Update stale local backups.",
+        description=(
+            "Compare cached source metadata to a backup manifest and plan updates. "
+            "Without --yes this command prints a dry-run plan and exits without "
+            "downloading or modifying backup files."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_SYNC_EXAMPLES,
+    )
     sync.add_argument(
         "--destination",
         type=Path,

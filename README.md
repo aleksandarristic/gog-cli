@@ -26,8 +26,8 @@ Run the CLI locally:
 ```sh
 gog --help
 gog list
-gog backup --destination /path/to/backups
-gog backup --destination /path/to/backups --dry-run
+gog plan --destination /path/to/backups --all --summary
+gog backup --destination /path/to/backups --games-from games.txt --dry-run
 ```
 
 ## Basic Workflow
@@ -36,6 +36,7 @@ gog backup --destination /path/to/backups --dry-run
 gog auth login
 gog refresh
 gog list purchased
+gog plan --destination /path/to/backups --all --storage --check-free-space
 gog backup --destination /path/to/backups --all --yes
 gog list backed-up --destination /path/to/backups
 gog sync --destination /path/to/backups --all --yes
@@ -72,3 +73,73 @@ gog list purchased --search "baldurs gate" --platform linux --format json
 Year filters omit games with unknown years by default; use
 `--include-unknown-year` to keep them. Genre filters similarly omit unknown
 genres by default; use `--include-unknown-genre` to keep those rows.
+
+## Planning Backups
+
+`gog plan` shows the same dry-run plan as `gog backup --dry-run` without
+downloading files or creating backup directories. Use it before long backup runs
+to estimate size, inspect filters, and check destination free space.
+
+Examples:
+
+```sh
+gog plan --destination /path/to/backups --all
+gog plan --destination /path/to/backups --all --summary
+gog plan --destination /path/to/backups --all --storage
+gog plan --destination /path/to/backups --all --check-free-space
+gog plan --destination /path/to/backups --all --format json
+gog plan --destination /path/to/backups cyberpunk_2077
+```
+
+Platform and language filters can reduce backup size:
+
+```sh
+gog plan --destination /path/to/backups --all --platform linux --storage
+gog plan --destination /path/to/backups --all --platform windows --language en --storage
+```
+
+## Selecting Games
+
+Game selectors can be product IDs, slugs, or exact titles. Commands that select
+games accept repeated `--game` flags:
+
+```sh
+gog plan --destination /path/to/backups --game witcher_3 --game cyberpunk_2077
+gog backup --destination /path/to/backups --game 123456789 --yes
+```
+
+For larger curated lists, put selectors in a UTF-8 text file and pass
+`--games-from`. Blank lines and lines whose first non-whitespace character is
+`#` are ignored.
+
+Example `games.txt`:
+
+```text
+# first NAS batch
+witcher_3
+cyberpunk_2077
+123456789
+```
+
+Use the selector file in plan, backup, or sync workflows:
+
+```sh
+gog plan --destination /path/to/backups --games-from games.txt --storage
+gog backup --destination /path/to/backups --games-from games.txt --downloader aria2c --yes
+gog sync --destination /path/to/backups --games-from games.txt --dry-run
+```
+
+`--games-from` is repeatable and combines with repeated `--game` flags. Do not
+combine explicit game selectors with `--all`.
+
+## Downloading
+
+`gog backup` defaults to the built-in direct downloader. To use `aria2c`, install
+`aria2c` and pass `--downloader aria2c` on an executing backup run:
+
+```sh
+gog backup --destination /path/to/backups --games-from games.txt --downloader aria2c --yes
+```
+
+Without `--yes`, backup and sync commands print a dry-run plan and exit without
+downloading or modifying backup files.

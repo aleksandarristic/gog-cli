@@ -1721,6 +1721,87 @@ def test_plan_help_lists_plan_flags(capsys: pytest.CaptureFixture[str]) -> None:
     assert "GAME" in out
 
 
+# --- TASK-0048: rich CLI help ---
+
+
+def _help_text(argv: list[str], capsys: pytest.CaptureFixture[str]) -> str:
+    with pytest.raises(SystemExit) as exc_info:
+        main([*argv, "--help"])
+
+    assert exc_info.value.code == 0
+    return capsys.readouterr().out
+
+
+def test_top_level_help_includes_common_workflow_examples(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = _help_text([], capsys)
+
+    assert "{auth,refresh,list,search,plan,backup,sync}" in out
+    assert "gog auth login" in out
+    assert "gog plan --destination /backups/gog --all --storage" in out
+    assert "gog backup --destination /backups/gog --games-from games.txt" in out
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["auth"], "gog auth status"),
+        (["auth", "login"], "gog auth login"),
+        (["auth", "status"], "gog auth status"),
+        (["auth", "logout"], "gog auth logout"),
+        (["refresh"], "gog refresh --force"),
+        (["list"], "gog list backup --destination /backups/gog"),
+        (["list", "purchased"], "gog list purchased --search witcher"),
+        (["list", "backup"], "gog list backup --destination /backups/gog --format json"),
+        (["search"], "gog search rpg --genre"),
+        (["plan"], "gog plan --destination /backups/gog --games-from games.txt --summary"),
+        (["backup"], "gog backup --destination /backups/gog --games-from games.txt"),
+        (["sync"], "gog sync --destination /backups/gog --games-from games.txt --yes"),
+    ],
+)
+def test_subcommand_help_includes_examples(
+    argv: list[str],
+    expected: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = _help_text(argv, capsys)
+
+    assert "examples:" in out
+    assert expected in out
+
+
+def test_selector_command_help_mentions_games_from(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for argv in (["plan"], ["backup"], ["sync"]):
+        out = _help_text(argv, capsys)
+        assert "--games-from PATH" in out
+        assert "UTF-8 text file" in out
+        assert "line. Repeatable." in out
+
+
+def test_backup_help_mentions_dry_run_and_aria2c(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = _help_text(["backup"], capsys)
+
+    assert "Without --yes" in out
+    assert "dry-run plan" in out
+    assert "--downloader {direct,aria2c}" in out
+    assert "--downloader aria2c --yes" in out
+
+
+def test_plan_help_mentions_non_destructive_planning(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = _help_text(["plan"], capsys)
+
+    assert "non-destructive backup plan" in out
+    assert "does not download files" in out
+    assert "gog plan --destination /backups/gog --all --format json" in out
+
+
 def test_plan_invalid_args_return_usage_exit_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
