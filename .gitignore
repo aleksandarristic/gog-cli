@@ -23,3 +23,6 @@ htmlcov/
 dist/
 build/
 pip-wheel-metadata/
+
+# Internal task tracking
+.task-management/

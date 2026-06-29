@@ -2,17 +2,23 @@
 
 `gog` is a Python CLI for backing up a user's owned DRM-free GOG game library.
 
-The project is intentionally early. The initial shape is focused on safe, scriptable workflows:
+It is focused on safe, scriptable workflows:
 
-- list owned games
-- back up owned games to a local directory
+- list owned games with filtering and fuzzy search
+- plan and execute backups to a local directory
 - preserve metadata needed to audit and restore backups
-- download installers and related files with resumable behavior where feasible
+- download installers and related files with resumable behavior
 - verify downloaded files when checksums are available
 
-## Development
+## Install
 
 Requires Python 3.12 or newer.
+
+```sh
+pip install git+https://github.com/aleksandarristic/gog-cli.git
+```
+
+## Development
 
 ```sh
 python3 -m venv .venv

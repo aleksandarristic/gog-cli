@@ -8,10 +8,15 @@ version = "0.1.0"
 description = "CLI tool for backing up DRM-free GOG games."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [
   { name = "gog-cli contributors" }
 ]
+
+[project.urls]
+Homepage = "https://github.com/aleksandarristic/gog-cli"
+Repository = "https://github.com/aleksandarristic/gog-cli"
+"Bug Tracker" = "https://github.com/aleksandarristic/gog-cli/issues"
 dependencies = [
   "requests>=2.32",
 ]

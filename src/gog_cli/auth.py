@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from gog_cli import log
+from gog_cli.api import _CLIENT_ID, _CLIENT_SECRET, _TOKEN_URL
 from gog_cli.errors import AuthError, ExitCode, FilesystemError, UsageError
 from gog_cli.state import (
     AppPaths,
@@ -23,10 +24,7 @@ from gog_cli.state import (
 
 _log = log.get_logger(__name__)
 
-_CLIENT_ID = "46899977096215655"
-_CLIENT_SECRET = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9"  # noqa: S105 - Public GOG Galaxy OAuth client credential.
 _REDIRECT_URI = "https://embed.gog.com/on_login_success?origin=client"
-_TOKEN_URL = "https://auth.gog.com/token"  # noqa: S105 - URL constant, not a secret.
 _USER_DATA_URL = "https://embed.gog.com/userData.json"
 _LOGIN_URL = (
     "https://auth.gog.com/auth"
