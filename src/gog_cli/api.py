@@ -19,6 +19,8 @@ _TOKEN_URL = "https://auth.gog.com/token"  # noqa: S105 - URL constant, not a se
 _OWNED_GAMES_URL = "https://embed.gog.com/user/data/games"
 _LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
 _PRODUCT_URL = "https://api.gog.com/products/{product_id}"
+# Unofficial public catalog search endpoint — no authentication required.
+_CATALOG_SEARCH_URL = "https://catalog.gog.com/v1/catalog"
 
 
 class TokenStore(Protocol):
@@ -114,3 +116,28 @@ class GogApiClient:
         resp = self._get(downlink_url)
         data = resp.json()
         return data["downlink"], data.get("checksum", "")
+
+
+def search_catalog(query: str, *, page: int = 1) -> dict:
+    """Search the public GOG catalog without authentication.
+
+    Uses an unofficial reverse-engineered endpoint; no stability guarantees.
+    """
+    try:
+        resp = requests.get(
+            _CATALOG_SEARCH_URL,
+            params={
+                "search": query,
+                "limit": 48,
+                "page": page,
+                "order": "desc:relevance",
+                "productType": "in:game",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        raise NetworkError(f"catalog search failed: {exc}") from exc
+    except (requests.ConnectionError, requests.Timeout, ConnectionError) as exc:
+        raise NetworkError(f"catalog search network error: {exc}") from exc
+    return resp.json()

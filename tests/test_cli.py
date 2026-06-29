@@ -957,6 +957,249 @@ def test_list_purchased_stale_cache_warns(
     assert "older than 24h" in capsys.readouterr().err
 
 
+_CATALOG_SEARCH_URL = "https://catalog.gog.com/v1/catalog"
+
+
+def _catalog_product(
+    product_id: int = 1207658924,
+    title: str = "The Witcher: Enhanced Edition",
+    slug: str = "the_witcher",
+    *,
+    release_date: str = "2007.04.26",
+    genres: list[str] | None = None,
+    operating_systems: list[str] | None = None,
+    available: bool = True,
+    price_amount: str = "9.99",
+    is_free: bool = False,
+) -> dict:
+    genre_list = [{"name": g, "slug": g.lower()} for g in (genres if genres is not None else ["RPG"])]
+    final_amount = "0.00" if is_free else price_amount
+    return {
+        "id": str(product_id),
+        "title": title,
+        "slug": slug,
+        "releaseDate": release_date,
+        "genres": genre_list,
+        "operatingSystems": operating_systems if operating_systems is not None else ["windows"],
+        "productState": "default" if available else "coming-soon",
+        "price": {"finalMoney": {"amount": final_amount, "currency": "USD"}},
+    }
+
+
+def _stub_catalog(products: list[dict]) -> None:
+    rsps_lib.add(
+        rsps_lib.GET,
+        _CATALOG_SEARCH_URL,
+        json={"products": products, "pages": 1, "productCount": len(products)},
+    )
+
+
+@rsps_lib.activate
+def test_search_catalog_human(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([_catalog_product()])
+
+    assert main(["search", "witcher"]) == 0
+    out = capsys.readouterr().out
+    assert "The Witcher: Enhanced Edition" in out
+    assert "1207658924" in out
+    assert "2007" in out
+    assert "RPG" in out
+    assert "windows" in out
+    assert "Owned" in out
+    assert "1 result(s)" in out
+
+
+@rsps_lib.activate
+def test_search_catalog_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([_catalog_product()])
+
+    assert main(["search", "witcher", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["command"] == "search"
+    game = parsed["data"][0]
+    assert game["product_id"] == 1207658924
+    assert game["title"] == "The Witcher: Enhanced Edition"
+    assert game["release_year"] == 2007
+    assert "windows" in game["platforms"]
+    assert "RPG" in game["genres"]
+    assert "price" in game
+    assert "is_available" in game
+
+
+@rsps_lib.activate
+def test_search_catalog_owned_annotation_when_library_cache_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(tmp_path, [{"product_id": 1207658924, "title": "The Witcher", "slug": "the_witcher", "platforms": []}])
+    _stub_catalog([
+        _catalog_product(1207658924, "The Witcher: Enhanced Edition"),
+        _catalog_product(9999999, "Some Other Game", "some_other_game"),
+    ])
+
+    assert main(["search", "witcher", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    data = {g["product_id"]: g for g in parsed["data"]}
+    assert data[1207658924]["owned"] is True
+    assert data[9999999]["owned"] is False
+
+
+@rsps_lib.activate
+def test_search_catalog_owned_is_null_when_no_library_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([_catalog_product()])
+
+    assert main(["search", "witcher", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["data"][0]["owned"] is None
+
+
+@rsps_lib.activate
+def test_search_catalog_human_shows_ownership_column(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(tmp_path, [{"product_id": 1207658924, "title": "The Witcher", "slug": "the_witcher", "platforms": []}])
+    _stub_catalog([
+        _catalog_product(1207658924, "The Witcher: Enhanced Edition"),
+        _catalog_product(9999999, "Some Other Game", "some_other_game"),
+    ])
+
+    assert main(["search", "witcher"]) == 0
+    out = capsys.readouterr().out
+    assert "yes" in out
+    assert "no" in out
+
+
+@rsps_lib.activate
+def test_search_catalog_empty_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    rsps_lib.add(
+        rsps_lib.GET,
+        _CATALOG_SEARCH_URL,
+        json={"products": [], "pages": 0, "productCount": 0},
+    )
+
+    assert main(["search", "xyznonexistent"]) == 0
+    out = capsys.readouterr().out
+    assert "No results" in out
+
+
+@rsps_lib.activate
+def test_search_catalog_network_error_returns_exit_code_4(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    rsps_lib.add(rsps_lib.GET, _CATALOG_SEARCH_URL, body=ConnectionError("no route"))
+
+    assert main(["search", "witcher"]) == 4
+    assert capsys.readouterr().err != ""
+
+
+@rsps_lib.activate
+def test_search_catalog_http_error_returns_exit_code_4(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    rsps_lib.add(rsps_lib.GET, _CATALOG_SEARCH_URL, status=503)
+
+    assert main(["search", "witcher"]) == 4
+
+
+@rsps_lib.activate
+def test_search_catalog_platform_filter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([
+        _catalog_product(1, "Windows Game", operating_systems=["windows"]),
+        _catalog_product(2, "Linux Game", "linux_game", operating_systems=["linux"]),
+    ])
+
+    assert main(["search", "game", "--platform", "linux", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert len(parsed["data"]) == 1
+    assert parsed["data"][0]["product_id"] == 2
+
+
+@rsps_lib.activate
+def test_search_catalog_year_filter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([
+        _catalog_product(1, "Old Game", release_date="1995.06.15"),
+        _catalog_product(2, "New Game", "new_game", release_date="2020.01.01"),
+    ])
+
+    assert main(["search", "game", "--year", "2000..", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert len(parsed["data"]) == 1
+    assert parsed["data"][0]["product_id"] == 2
+
+
+@rsps_lib.activate
+def test_search_catalog_genre_filter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([
+        _catalog_product(1, "RPG Game", genres=["RPG"]),
+        _catalog_product(2, "Strategy Game", "strategy_game", genres=["Strategy"]),
+    ])
+
+    assert main(["search", "game", "--genre", "strategy", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert len(parsed["data"]) == 1
+    assert parsed["data"][0]["product_id"] == 2
+
+
+@rsps_lib.activate
+def test_search_catalog_free_game_price(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([_catalog_product(is_free=True, price_amount="0.00")])
+
+    assert main(["search", "witcher", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["data"][0]["price"] == "free"
+
+
 def _seed_library_cache(
     home: Path,
     games: list[dict],

@@ -1,4 +1,4 @@
-"""List commands for purchased and backed-up games."""
+"""List commands for purchased and backed-up games, and public catalog search."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from gog_cli.api import search_catalog
 from gog_cli.backup import BackupLayout
 from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, UsageError
@@ -417,6 +418,128 @@ def _parse_timestamp(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def handle_search_catalog(args: argparse.Namespace) -> int:
+    query = str(getattr(args, "query", "") or "").strip()
+
+    paths = resolve_app_paths()
+    owned_ids: set[int] | None = None
+    try:
+        cache = _load_library_cache(paths.library_cache)
+        owned_ids = {
+            int(g["product_id"])
+            for g in cache["games"]
+            if g.get("product_id") is not None
+        }
+    except (StateFileMissingError, StateFileCorruptError, StateFileInvalidError):
+        pass
+
+    raw = search_catalog(query)
+    games = [_normalize_catalog_result(p, owned_ids) for p in raw.get("products", [])]
+    games = _apply_catalog_filters(games, args)
+
+    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    if output_format == OutputFormat.JSON:
+        print_json(JsonEnvelope(command="search", data=games))
+        return ExitCode.SUCCESS
+
+    if not games:
+        print_human([f'No results for "{query}".'])
+        return ExitCode.SUCCESS
+
+    lines: list[str] = [
+        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {'Platforms':<25}  Owned",
+        f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 25}  {'-' * 5}",
+    ]
+    for game in games:
+        lines.append(
+            f"{str(game.get('product_id', '') or ''):>10}  "
+            f"{str(game.get('title', '')):<34.34}  "
+            f"{_format_year(game.get('release_year')):>4}  "
+            f"{_format_genres(game.get('genres', [])):<18.18}  "
+            f"{_format_platforms(game.get('platforms', [])):<25.25}  "
+            f"{_format_owned(game.get('owned'))}"
+        )
+    lines.append(f'{len(games)} result(s) for "{query}".')
+    print_human(lines)
+    return ExitCode.SUCCESS
+
+
+def _normalize_catalog_result(product: dict[str, Any], owned_ids: set[int] | None) -> dict[str, Any]:
+    # catalog.gog.com/v1 returns id as a string
+    product_id_raw = product.get("id")
+    if isinstance(product_id_raw, str) and product_id_raw.isdigit():
+        product_id: int | None = int(product_id_raw)
+    elif isinstance(product_id_raw, int):
+        product_id = product_id_raw
+    else:
+        product_id = None
+
+    # releaseDate is "YYYY.MM.DD" in v1 catalog
+    release_year_val: int | None = None
+    release_date_raw = product.get("releaseDate") or ""
+    if isinstance(release_date_raw, str) and len(release_date_raw) >= 4 and release_date_raw[:4].isdigit():
+        release_year_val = int(release_date_raw[:4])
+
+    platforms = normalize_platforms(product.get("operatingSystems", []))
+    # genres is a list of {"name": ..., "slug": ...} dicts in v1
+    genres = normalize_genres(product.get("genres", []))
+
+    # price in v1: {"finalMoney": {"amount": "4.99", ...}, ...}
+    price: str | None = None
+    price_data = product.get("price") or {}
+    final_money = price_data.get("finalMoney") or {}
+    amount = final_money.get("amount")
+    if amount is not None:
+        price = "free" if str(amount) in ("0", "0.00") else str(amount)
+
+    if owned_ids is None:
+        owned: bool | None = None
+    elif product_id is not None:
+        owned = product_id in owned_ids
+    else:
+        owned = False
+
+    return {
+        "product_id": product_id,
+        "title": product.get("title", ""),
+        "slug": product.get("slug", ""),
+        "release_year": release_year_val,
+        "platforms": platforms,
+        "genres": genres,
+        "price": price,
+        "is_available": product.get("productState") == "default",
+        "owned": owned,
+    }
+
+
+def _apply_catalog_filters(
+    games: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    platforms = normalize_platforms(_split_filter_values(getattr(args, "platforms", [])))
+    genres = [
+        value.casefold()
+        for value in _split_filter_values(getattr(args, "genres", []))
+        if value
+    ]
+    year_range = _parse_year_range(getattr(args, "year", None))
+    return [
+        game
+        for game in games
+        if _matches_platforms(game, platforms)
+        and _matches_year(game, year_range, include_unknown=False)
+        and _matches_genres(game, genres, include_unknown=False)
+    ]
+
+
+def _format_owned(owned: bool | None) -> str:
+    if owned is True:
+        return "yes"
+    if owned is False:
+        return "no"
+    return "-"
 
 
 def _format_cache_age(fetched_at: str) -> str:

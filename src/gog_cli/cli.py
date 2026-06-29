@@ -11,7 +11,7 @@ from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
 from gog_cli.errors import GogError
 from gog_cli.execution import handle_backup, handle_sync
-from gog_cli.listing import handle_list_backed_up, handle_list_purchased
+from gog_cli.listing import handle_list_backed_up, handle_list_purchased, handle_search_catalog
 from gog_cli.refresh import handle_refresh
 
 
@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_auth_parser(subcommands)
     _add_refresh_parser(subcommands)
     _add_list_parser(subcommands)
+    _add_search_parser(subcommands)
     _add_backup_parser(subcommands)
     _add_sync_parser(subcommands)
 
@@ -148,6 +149,49 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         help="Output format (default: human).",
     )
     backed_up.set_defaults(handler=handle_list_backed_up)
+
+
+def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    search = subcommands.add_parser(
+        "search",
+        help="Search the public GOG catalog.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  gog search witcher
+  gog search "baldurs gate" --platform windows
+  gog search strategy --year 2000..2010
+  gog search rpg --genre "role-playing" --format json""",
+    )
+    search.add_argument("query", help="Search query (title keywords).")
+    search.add_argument(
+        "--format",
+        choices=["human", "json"],
+        default="human",
+        dest="output_format",
+        help="Output format (default: human).",
+    )
+    search.add_argument(
+        "--platform",
+        action="append",
+        default=[],
+        dest="platforms",
+        metavar="PLATFORM",
+        help="Filter by platform (windows, mac, linux). Repeatable.",
+    )
+    search.add_argument(
+        "--year",
+        metavar="RANGE",
+        help="Filter by release year, e.g. 1998..2005, 2020.., or ..2000.",
+    )
+    search.add_argument(
+        "--genre",
+        action="append",
+        default=[],
+        dest="genres",
+        metavar="GENRE",
+        help="Filter by genre/category/tag. Repeatable.",
+    )
+    search.set_defaults(handler=handle_search_catalog)
 
 
 def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
