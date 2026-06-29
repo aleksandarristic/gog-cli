@@ -17,15 +17,39 @@
 
 ## Commands
 - Run tests with `python -m pytest`.
+- Run linting with `ruff check src/ tests/`.
 - Run the CLI locally with `python -m gog_cli.cli --help` or the installed `gog` console script.
 
-## Task management
-- Use `.task-management/` for durable task tracking.
-- Use stable task IDs in the form `TASK-####`; never reuse IDs.
-- Keep immediate work in `.task-management/TODO.md` and deferred work in `.task-management/BACKLOG.md`.
-- Keep larger task details in `.task-management/TASK-####-slug.md`.
-- Move completed tasks to `.task-management/DONE.md` with completion date and notes.
-- Move dropped tasks to `.task-management/REMOVED.md` with removal date and reason.
+## Branch and remote hygiene
+
+All work goes on a branch. `main` is always releasable.
+
+| Prefix | Use |
+|--------|-----|
+| `feature/` | New user-visible functionality |
+| `fix/` | Bug fixes |
+| `chore/` | Dependency updates, tooling, CI changes |
+| `docs/` | Documentation only |
+| `release/` | Version bumps and release prep |
+
+Worktrees are for local parallel work only:
+- Never `git push` a worktree or session branch to remote. Worktree branches (prefixed `session/`, `task/`, or similar) are ephemeral and must stay local.
+- Never push any branch to remote unless the user explicitly asks.
+- Never open a PR unless the user explicitly asks.
+- After parallel agent work is done and results are merged back to the working branch, the worktree branch should be deleted locally — do not let it accumulate.
+
+Why instructions rather than permission restrictions? Worktrees are intentionally used for parallel multi-agent workflows. Blocking git push entirely would break legitimate pushes. The instruction approach preserves worktree utility while enforcing correct lifecycle.
+
+### Correct worktree lifecycle
+
+```
+Agent(isolation: "worktree") spawned
+  → git worktree add  (branch: session/<id> or task/<id>)
+  → agent does work, commits locally
+  → results merged back to working branch
+  → git worktree remove
+  → git branch -d session/<id>   ← local delete, never pushed
+```
 
 ## Multi-agent dispatch
 - Agent roles:

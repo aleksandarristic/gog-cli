@@ -1,0 +1,51 @@
+name: Bug report
+description: Something isn't working as expected.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: gog-cli version
+      description: Output of `gog --version`
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python --version`
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 15, Ubuntu 24.04, Windows 11…
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      description: The exact command you ran (redact any personal info).
+      render: sh
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include full output and any error messages.
+    validations:
+      required: true
