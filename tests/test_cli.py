@@ -20,7 +20,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
 
     assert exc_info.value.code == 0
-    assert "gog 0.2.0" in capsys.readouterr().out
+    assert "gog 0.2.1" in capsys.readouterr().out
 
 
 def test_list_purchased_human(

@@ -7,6 +7,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.1] — 2026-06-29
+
+### Fixed
+- Lint errors (line length, import sort) that caused CI to fail on 0.2.0.
+
+### Changed
+- CI badge added to README.
+
+---
+
 ## [0.2.0] — 2026-06-29
 
 ### Added

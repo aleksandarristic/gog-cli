@@ -1,5 +1,7 @@
 # gog-cli
 
+[![CI](https://github.com/aleksandarristic/gog-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/aleksandarristic/gog-cli/actions/workflows/ci.yml)
+
 `gog` is a Python CLI for backing up a user's owned DRM-free GOG game library.
 
 It is focused on safe, scriptable workflows:
