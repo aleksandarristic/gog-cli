@@ -433,6 +433,200 @@ def test_list_purchased_help_includes_filter_examples(
     assert "--include-unknown-genre" in out
 
 
+def test_list_purchased_sizes_flag_shows_size_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+            {"product_id": 2222, "title": "Linux Only", "slug": "linux_only", "platforms": []},
+        ],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        1111,
+        installers=[
+            _sized_installer("setup_win", product_id=1111, os_name="windows", size=1073741824),
+            _sized_installer("setup_mac", product_id=1111, os_name="osx", size=536870912),
+        ],
+        bonus_content=[_bonus_entry("art_book", size=1048576)],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        2222,
+        installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1073741824)],
+    )
+
+    assert main(["list", "purchased", "--sizes"]) == 0
+    out = capsys.readouterr().out
+    assert "Win" in out
+    assert "Mac" in out
+    assert "Lin" in out
+    assert "Extras" in out
+    assert "Platforms" not in out
+    assert "1.0 GB" in out
+    assert "512.0 MB" in out
+    assert "1.0 MB" in out
+
+
+def test_list_purchased_sizes_shows_dash_when_no_download_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+
+    assert main(["list", "purchased", "--sizes"]) == 0
+    out = capsys.readouterr().out
+    assert "Win" in out
+    assert out.count("-") >= 4
+
+
+def test_list_purchased_sizes_included_in_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        1111,
+        installers=[_sized_installer("setup_win", product_id=1111, os_name="windows", size=1073741824)],
+        bonus_content=[_bonus_entry("art_book", size=1048576)],
+    )
+
+    assert main(["list", "purchased", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    game = parsed["data"][0]
+    assert game["installer_sizes"] == {"windows": 1073741824}
+    assert game["extras_size"] == 1048576
+
+
+def test_list_purchased_sort_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Zelda", "slug": "zelda"},
+            {"product_id": 2222, "title": "Arcanum", "slug": "arcanum"},
+            {"product_id": 3333, "title": "Morrowind", "slug": "morrowind"},
+        ],
+    )
+
+    assert main(["list", "purchased", "--sort", "title"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Arcanum") < out.index("Morrowind") < out.index("Zelda")
+
+
+def test_list_purchased_sort_year(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "New Game", "slug": "new_game", "release_year": 2020},
+            {"product_id": 2222, "title": "Old Game", "slug": "old_game", "release_year": 1998},
+            {"product_id": 3333, "title": "No Year", "slug": "no_year"},
+        ],
+    )
+
+    assert main(["list", "purchased", "--sort", "year"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Old Game") < out.index("New Game") < out.index("No Year")
+
+
+def test_list_purchased_sort_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Small Game", "slug": "small"},
+            {"product_id": 2222, "title": "Big Game", "slug": "big"},
+        ],
+    )
+    _seed_download_cache_with_bonus(tmp_path, 1111, installers=[
+        _sized_installer("s1", product_id=1111, os_name="windows", size=1073741824),
+    ])
+    _seed_download_cache_with_bonus(tmp_path, 2222, installers=[
+        _sized_installer("b1", product_id=2222, os_name="windows", size=10737418240),
+    ])
+
+    assert main(["list", "purchased", "--sort", "size", "--sizes"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Big Game") < out.index("Small Game")
+
+
+def test_list_backed_up_sort_title(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_manifest(
+        destination,
+        [
+            {"product_id": 1111, "title": "Zelda", "directory": "zelda", "status": "current", "files": []},
+            {"product_id": 2222, "title": "Arcanum", "directory": "arcanum", "status": "current", "files": []},
+        ],
+    )
+
+    assert main(["list", "backup", "--destination", str(destination), "--sort", "title"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Arcanum") < out.index("Zelda")
+
+
+def test_list_backed_up_sort_size(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_manifest(
+        destination,
+        [
+            {
+                "product_id": 1111,
+                "title": "Small Game",
+                "directory": "small",
+                "status": "current",
+                "files": [{"status": "verified", "expected_size": 1073741824}],
+            },
+            {
+                "product_id": 2222,
+                "title": "Big Game",
+                "directory": "big",
+                "status": "current",
+                "files": [{"status": "verified", "expected_size": 10737418240}],
+            },
+        ],
+    )
+
+    assert main(["list", "backup", "--destination", str(destination), "--sort", "size"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Big Game") < out.index("Small Game")
+
+
 def test_list_backed_up_requires_destination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -481,6 +675,64 @@ def test_list_backed_up_human(
     assert "Cyberpunk 2077" in out.out
     assert "current" in out.out
     assert "partial" in out.out
+    assert "Size" in out.out
+
+
+def test_list_backed_up_shows_total_size(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_manifest(
+        destination,
+        [
+            {
+                "product_id": 1111,
+                "title": "Witcher 3",
+                "directory": "witcher_3",
+                "status": "current",
+                "files": [
+                    {"status": "verified", "expected_size": 536870912},
+                    {"status": "verified", "expected_size": 536870912},
+                ],
+            },
+            {
+                "product_id": 2222,
+                "title": "No Size Game",
+                "directory": "no_size",
+                "status": "current",
+                "files": [{"status": "verified"}],
+            },
+        ],
+    )
+
+    assert main(["list", "backup", "--destination", str(destination)]) == 0
+    out = capsys.readouterr().out
+    assert "1.0 GB" in out
+    assert "-" in out
+
+
+def test_list_backed_up_size_in_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_manifest(
+        destination,
+        [
+            {
+                "product_id": 1111,
+                "title": "Witcher 3",
+                "directory": "witcher_3",
+                "status": "current",
+                "files": [{"status": "verified", "expected_size": 1073741824}],
+            }
+        ],
+    )
+
+    assert main(["list", "backup", "--destination", str(destination), "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["data"][0]["total_size_bytes"] == 1073741824
 
 
 def test_list_backed_up_format_json(
@@ -1969,6 +2221,63 @@ def test_games_from_conflicts_with_all(
         == ExitCode.USAGE
     )
     assert "--all and --game" in capsys.readouterr().err
+
+
+def _sized_installer(
+    source_id: str,
+    *,
+    product_id: int,
+    os_name: str,
+    size: int,
+) -> dict:
+    return {
+        "id": f"installer_{source_id}",
+        "os": os_name,
+        "language": "en",
+        "version": "1.0",
+        "files": [
+            {
+                "id": source_id,
+                "size": size,
+                "downlink": f"https://api.gog.com/products/{product_id}/downlink/installer/{source_id}",
+            }
+        ],
+    }
+
+
+def _bonus_entry(source_id: str, *, size: int) -> dict:
+    return {
+        "id": f"bonus_{source_id}",
+        "files": [
+            {
+                "id": source_id,
+                "size": size,
+                "downlink": f"https://api.gog.com/products/1111/downlink/bonus/{source_id}",
+            }
+        ],
+    }
+
+
+def _seed_download_cache_with_bonus(
+    home: Path,
+    product_id: int,
+    installers: list[dict],
+    bonus_content: list[dict] | None = None,
+) -> None:
+    data = {
+        "id": product_id,
+        "downloads": {
+            "installers": installers,
+            "patches": [],
+            "language_packs": [],
+            "bonus_content": bonus_content or [],
+        },
+    }
+    paths = resolve_app_paths({"HOME": str(home)})
+    write_json_file_atomic(
+        paths.download_cache(str(product_id)),
+        {"fetched_at": "2026-06-26T10:00:00Z", "product_id": product_id, "data": data},
+    )
 
 
 def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:

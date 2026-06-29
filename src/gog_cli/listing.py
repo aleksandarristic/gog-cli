@@ -13,7 +13,7 @@ from gog_cli.api import search_catalog
 from gog_cli.backup import BackupLayout
 from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, UsageError
-from gog_cli.metadata import extract_download_summary, normalize_genres, normalize_platforms
+from gog_cli.metadata import extract_download_summary, extract_size_summary, normalize_genres, normalize_platforms
 from gog_cli.output import (
     GAME_CURRENT,
     GAME_ERROR,
@@ -51,6 +51,7 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
 
     games = [_enrich_game_metadata(game, paths) for game in cache["games"]]
     games = _apply_purchased_filters(games, args)
+    games = _sort_purchased(games, getattr(args, "sort", None))
     fetched_at = cache.get("fetched_at", "")
     output_format = OutputFormat(getattr(args, "output_format", "human"))
 
@@ -58,18 +59,37 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
         print_json(JsonEnvelope(command="list purchased", data=games))
         return ExitCode.SUCCESS
 
-    lines: list[str] = [
-        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  Platforms",
-        f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 25}",
-    ]
-    for game in games:
-        lines.append(
-            f"{str(game.get('product_id', '')):>10}  "
-            f"{str(game.get('title', '')):<34.34}  "
-            f"{_format_year(game.get('release_year')):>4}  "
-            f"{_format_genres(game.get('genres', [])):<18.18}  "
-            f"{_format_platforms(game.get('platforms', []))}"
-        )
+    show_sizes = bool(getattr(args, "sizes", False))
+    if show_sizes:
+        lines: list[str] = [
+            f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {'Win':>8}  {'Mac':>8}  {'Lin':>8}  {'Extras':>8}",
+            f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 8}  {'-' * 8}  {'-' * 8}  {'-' * 8}",
+        ]
+        for game in games:
+            inst = game.get("installer_sizes") or {}
+            lines.append(
+                f"{str(game.get('product_id', '')):>10}  "
+                f"{str(game.get('title', '')):<34.34}  "
+                f"{_format_year(game.get('release_year')):>4}  "
+                f"{_format_genres(game.get('genres', [])):<18.18}  "
+                f"{_format_size(inst.get('windows')):>8}  "
+                f"{_format_size(inst.get('mac')):>8}  "
+                f"{_format_size(inst.get('linux')):>8}  "
+                f"{_format_size(game.get('extras_size')):>8}"
+            )
+    else:
+        lines = [
+            f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  Platforms",
+            f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 25}",
+        ]
+        for game in games:
+            lines.append(
+                f"{str(game.get('product_id', '')):>10}  "
+                f"{str(game.get('title', '')):<34.34}  "
+                f"{_format_year(game.get('release_year')):>4}  "
+                f"{_format_genres(game.get('genres', [])):<18.18}  "
+                f"{_format_platforms(game.get('platforms', []))}"
+            )
 
     cache_age = _format_cache_age(fetched_at)
     lines.append(f"{len(games)} games. Cache age: {cache_age}.")
@@ -109,14 +129,15 @@ def handle_list_backed_up(args: argparse.Namespace) -> int:
 
     output_format = OutputFormat(getattr(args, "output_format", "human"))
     games = [_normalize_manifest_game(game) for game in manifest["games"]]
+    games = _sort_backed_up(games, getattr(args, "sort", None))
 
     if output_format == OutputFormat.JSON:
         print_json(JsonEnvelope(command="list backup", data=games))
         return ExitCode.SUCCESS
 
     lines: list[str] = [
-        f"{'ID':>10}  {'Title':<28}  {'Game Dir':<20}  {'Files':>5}  Status",
-        f"{'-' * 10}  {'-' * 28}  {'-' * 20}  {'-' * 5}  {'-' * 6}",
+        f"{'ID':>10}  {'Title':<28}  {'Game Dir':<20}  {'Files':>5}  {'Size':>8}  Status",
+        f"{'-' * 10}  {'-' * 28}  {'-' * 20}  {'-' * 5}  {'-' * 8}  {'-' * 6}",
     ]
     for game in games:
         lines.append(
@@ -124,6 +145,7 @@ def handle_list_backed_up(args: argparse.Namespace) -> int:
             f"{str(game.get('title', '')):<28.28}  "
             f"{str(game.get('directory_display', '')):<20.20}  "
             f"{int(game.get('files', 0)):>5}  "
+            f"{_format_size(game.get('total_size_bytes')):>8}  "
             f"{game.get('status', GAME_MISSING)}"
         )
 
@@ -171,12 +193,15 @@ def _enrich_game_metadata(game: dict[str, Any], paths: Any) -> dict[str, Any]:
         return enriched
 
     summary = extract_download_summary(download_cache)
+    size_summary = extract_size_summary(download_cache)
     if summary.get("platforms") and not enriched.get("platforms"):
         enriched["platforms"] = summary["platforms"]
     for key in ("release_date", "release_year", "is_installable", "download_type"):
         value = summary.get(key)
         if value not in (None, "") and enriched.get(key) in (None, ""):
             enriched[key] = value
+    enriched["installer_sizes"] = size_summary.get("installer_sizes")
+    enriched["extras_size"] = size_summary.get("extras_size")
     return enriched
 
 
@@ -344,6 +369,31 @@ def _best_fuzzy_ratio(query: str, candidate: str) -> float:
     return max(SequenceMatcher(None, query, choice).ratio() for choice in choices)
 
 
+def _sort_purchased(games: list[dict[str, Any]], key: str | None) -> list[dict[str, Any]]:
+    if key == "title":
+        return sorted(games, key=lambda g: str(g.get("title", "")).casefold())
+    if key == "year":
+        return sorted(games, key=lambda g: (g.get("release_year") is None, g.get("release_year") or 0))
+    if key == "size":
+        def _total(g: dict[str, Any]) -> int:
+            inst = g.get("installer_sizes") or {}
+            return sum(inst.values()) + (g.get("extras_size") or 0)
+        return sorted(games, key=_total, reverse=True)
+    return games
+
+
+def _sort_backed_up(games: list[dict[str, Any]], key: str | None) -> list[dict[str, Any]]:
+    if key == "title":
+        return sorted(games, key=lambda g: str(g.get("title", "")).casefold())
+    if key == "size":
+        return sorted(games, key=lambda g: g.get("total_size_bytes") or 0, reverse=True)
+    if key == "status":
+        return sorted(games, key=lambda g: str(g.get("status", "")))
+    if key == "files":
+        return sorted(games, key=lambda g: int(g.get("files", 0)), reverse=True)
+    return games
+
+
 def _normalize_manifest_game(game: dict[str, Any]) -> dict[str, Any]:
     files = game.get("files", [])
     status = _normalize_game_status(game.get("status"), files)
@@ -352,12 +402,18 @@ def _normalize_manifest_game(game: dict[str, Any]) -> dict[str, Any]:
         directory_display = f"{directory}/"
     else:
         directory_display = directory or "-"
+    total_size_bytes = sum(
+        int(f.get("expected_size") or f.get("size_bytes") or 0)
+        for f in files
+        if isinstance(f, dict)
+    )
     return {
         "product_id": game.get("product_id", ""),
         "title": game.get("title", ""),
         "directory": directory,
         "directory_display": directory_display,
         "files": len(files) if isinstance(files, list) else 0,
+        "total_size_bytes": total_size_bytes or None,
         "status": status,
     }
 
@@ -388,6 +444,20 @@ def _normalize_game_status(status: Any, files: Any) -> str:
     if file_statuses <= {"verified"}:
         return GAME_CURRENT
     return GAME_MISSING
+
+
+def _format_size(n: int | None) -> str:
+    if not n:
+        return "-"
+    units = ("B", "KB", "MB", "GB", "TB")
+    x = float(n)
+    for unit in units[:-1]:
+        if x < 1024:
+            if unit == "B":
+                return f"{int(x)} B"
+            return f"{x:.1f} {unit}"
+        x /= 1024
+    return f"{x:.2f} {units[-1]}"
 
 
 def _format_platforms(platforms: Any) -> str:

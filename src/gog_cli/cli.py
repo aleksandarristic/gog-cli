@@ -41,6 +41,7 @@ _LIST_EXAMPLES = """examples:
 _LIST_PURCHASED_EXAMPLES = """examples:
   gog list purchased --search witcher
   gog list purchased --platform windows
+  gog list purchased --sizes
   gog list purchased --year 1998..2005
   gog list purchased --year 2010..2020 --include-unknown-year
   gog list purchased --genre strategy
@@ -234,6 +235,17 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         metavar="TEXT",
         help="Fuzzy title search.",
     )
+    purchased.add_argument(
+        "--sizes",
+        action="store_true",
+        help="Show installer sizes per platform and extras size instead of platform names.",
+    )
+    purchased.add_argument(
+        "--sort",
+        choices=["title", "year", "size"],
+        metavar="COLUMN",
+        help="Sort results by column: title (A-Z), year (oldest first), size (largest first).",
+    )
     purchased.set_defaults(handler=handle_list_purchased)
 
     backed_up = list_sub.add_parser(
@@ -256,6 +268,12 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         default="human",
         dest="output_format",
         help="Output format (default: human).",
+    )
+    backed_up.add_argument(
+        "--sort",
+        choices=["title", "size", "status", "files"],
+        metavar="COLUMN",
+        help="Sort results by column: title (A-Z), size (largest first), status (A-Z), files (most first).",
     )
     backed_up.set_defaults(handler=handle_list_backed_up)
 

@@ -116,6 +116,57 @@ def release_year(value: Any) -> int | None:
     return None
 
 
+def extract_size_summary(product_or_cache: dict[str, Any]) -> dict[str, Any]:
+    """Return installer sizes by platform and total extras size from download metadata."""
+    product = product_or_cache.get("data", product_or_cache)
+    if not isinstance(product, dict):
+        return {}
+    downloads = product.get("downloads")
+    if not isinstance(downloads, dict):
+        return {}
+
+    installer_sizes: dict[str, int] = {}
+    for entry in downloads.get("installers", []):
+        if not isinstance(entry, dict):
+            continue
+        platform = _PLATFORM_ALIASES.get(str(entry.get("os", "")).strip().lower())
+        if not platform:
+            continue
+        for file_entry in entry.get("files") or []:
+            if not isinstance(file_entry, dict):
+                continue
+            raw = file_entry["size"] if file_entry.get("size") is not None else entry.get("total_size")
+            size = _parse_int(raw)
+            if size:
+                installer_sizes[platform] = installer_sizes.get(platform, 0) + size
+
+    extras_total = 0
+    for entry in downloads.get("bonus_content", []):
+        if not isinstance(entry, dict):
+            continue
+        for file_entry in entry.get("files") or []:
+            if not isinstance(file_entry, dict):
+                continue
+            raw = file_entry["size"] if file_entry.get("size") is not None else entry.get("total_size")
+            size = _parse_int(raw)
+            if size:
+                extras_total += size
+
+    return {
+        "installer_sizes": installer_sizes if installer_sizes else None,
+        "extras_size": extras_total if extras_total else None,
+    }
+
+
+def _parse_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_download_summary(product_or_cache: dict[str, Any]) -> dict[str, Any]:
     """Return list-facing metadata implied by product download metadata."""
     product = product_or_cache.get("data", product_or_cache)
