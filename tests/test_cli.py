@@ -1763,6 +1763,133 @@ def test_plan_missing_download_cache_returns_cache_exit_code(
     assert "Download metadata cache is missing" in capsys.readouterr().err
 
 
+# --- TASK-0047: selector files ---
+
+
+def test_plan_games_from_file_selects_listed_games(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    games_file = tmp_path / "games.txt"
+    games_file.write_text(
+        """
+        # fit this subset first
+        witcher_3
+
+        cyberpunk_2077
+        """,
+        encoding="utf-8",
+    )
+
+    assert (
+        main(["plan", "--destination", str(tmp_path / "backups"), "--games-from", str(games_file)])
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "Scope: 2 owned | 2 selected" in out
+    assert "witcher_3" in out
+    assert "cyberpunk_2077" in out
+
+
+def test_backup_dry_run_games_from_file_selects_listed_games(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    games_file = tmp_path / "games.txt"
+    games_file.write_text("witcher_3\n", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--games-from",
+                str(games_file),
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "Scope: 2 owned | 1 selected" in out
+    assert "witcher_3" in out
+    assert "cyberpunk_2077" not in out
+
+
+def test_games_from_multiple_files_are_combined(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("witcher_3\n", encoding="utf-8")
+    second.write_text("cyberpunk_2077\n", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "plan",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--games-from",
+                str(first),
+                "--games-from",
+                str(second),
+                "--summary",
+            ]
+        )
+        == 0
+    )
+    assert "Scope: 2 owned | 2 selected" in capsys.readouterr().out
+
+
+def test_games_from_missing_file_returns_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    missing = tmp_path / "missing.txt"
+
+    assert (
+        main(["plan", "--destination", str(tmp_path / "backups"), "--games-from", str(missing)])
+        == ExitCode.USAGE
+    )
+    assert "Game selector file does not exist" in capsys.readouterr().err
+
+
+def test_games_from_conflicts_with_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    games_file = tmp_path / "games.txt"
+    games_file.write_text("witcher_3\n", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "plan",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--all",
+                "--games-from",
+                str(games_file),
+            ]
+        )
+        == ExitCode.USAGE
+    )
+    assert "--all and --game" in capsys.readouterr().err
+
+
 def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:
     headers = {}
     if header_filename:

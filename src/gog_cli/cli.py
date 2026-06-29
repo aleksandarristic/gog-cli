@@ -206,6 +206,15 @@ def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
         help="Select a game by product id, slug, or exact title. Repeatable.",
     )
     grp.add_argument(
+        "--games-from",
+        dest="games_from",
+        metavar="PATH",
+        action="append",
+        default=[],
+        type=Path,
+        help="Read game selectors from a UTF-8 text file, one per line. Repeatable.",
+    )
+    grp.add_argument(
         "--exclude",
         metavar="SELECTOR",
         action="append",

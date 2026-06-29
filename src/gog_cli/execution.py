@@ -285,16 +285,17 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
 
 
 def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
-    if args.all_games or args.games:
+    game_selectors = _game_selectors_from_args(args)
+    if args.all_games or game_selectors:
         selected = select_games(
             library,
-            game_selectors=args.games,
+            game_selectors=game_selectors,
             exclude=args.exclude,
             all_games=args.all_games,
         )
     else:
         if args.no_interactive or not is_interactive():
-            raise UsageError("No games selected. Use --all or --game.")
+            raise UsageError("No games selected. Use --all, --game, or --games-from.")
         labels = [
             f"{game.get('title', '')} ({_game_product_id(game)}, {game.get('slug', '')})"
             for game in library
@@ -307,6 +308,30 @@ def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> li
     if not selected:
         raise UsageError("No games selected after applying filters.")
     return selected
+
+
+def _game_selectors_from_args(args: argparse.Namespace) -> list[str]:
+    selectors = list(getattr(args, "games", []) or [])
+    for path in getattr(args, "games_from", []) or []:
+        selectors.extend(_read_game_selector_file(Path(path)))
+    return selectors
+
+
+def _read_game_selector_file(path: Path) -> list[str]:
+    try:
+        lines = path.expanduser().read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        raise UsageError(f"Game selector file does not exist: {path}") from None
+    except OSError as exc:
+        raise UsageError(f"Could not read game selector file {path}: {exc}") from exc
+
+    selectors = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        selectors.append(stripped)
+    return selectors
 
 
 def _confirm_if_needed(args: argparse.Namespace, files_to_process: list[PlannedFile]) -> None:
