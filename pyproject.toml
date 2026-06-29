@@ -13,13 +13,14 @@ authors = [
   { name = "gog-cli contributors" }
 ]
 
+dependencies = [
+  "requests>=2.32",
+]
+
 [project.urls]
 Homepage = "https://github.com/aleksandarristic/gog-cli"
 Repository = "https://github.com/aleksandarristic/gog-cli"
 "Bug Tracker" = "https://github.com/aleksandarristic/gog-cli/issues"
-dependencies = [
-  "requests>=2.32",
-]
 
 [project.optional-dependencies]
 dev = [
