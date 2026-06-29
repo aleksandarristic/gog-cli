@@ -679,6 +679,35 @@ def test_sync_dry_run(
     assert "Plan:" in capsys.readouterr().out
 
 
+def test_backup_without_yes_is_implicit_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert main(["backup", "--destination", str(tmp_path / "backups"), "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "Plan:" in out
+    assert "Dry run" in out
+    assert not (tmp_path / "backups" / "games").exists()
+
+
+def test_sync_without_yes_is_implicit_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_manifest(destination, [_manifest_game(version="1.0")])
+
+    assert main(["sync", "--destination", str(destination), "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "Plan:" in out
+    assert "Dry run" in out
+
+
 def test_sync_missing_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

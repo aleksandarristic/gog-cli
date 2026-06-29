@@ -145,6 +145,60 @@ def test_plan_backup_role_filter(tmp_path: Path) -> None:
     assert plan.downloads[0].spec.role == "installer"
 
 
+def test_plan_backup_platform_filter_records_skip(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {
+        "1111": [
+            make_spec(source_id="win_inst", platform="windows"),
+            make_spec(source_id="lin_inst", platform="linux"),
+        ]
+    }
+
+    plan = plan_backup(tmp_path, games, specs, layout, platforms=["linux"])
+
+    assert len(plan.skips) == 1
+    assert plan.skips[0].spec.source_id == "win_inst"
+    assert plan.skips[0].skip_reason == "platform_not_selected"
+
+
+def test_plan_backup_language_filter_records_skip(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {
+        "1111": [
+            make_spec(source_id="en_inst", language="en"),
+            make_spec(source_id="de_inst", language="de"),
+        ]
+    }
+
+    plan = plan_backup(tmp_path, games, specs, layout, languages=["en"])
+
+    assert len(plan.downloads) == 1
+    assert plan.downloads[0].spec.source_id == "en_inst"
+    assert len(plan.skips) == 1
+    assert plan.skips[0].spec.source_id == "de_inst"
+    assert plan.skips[0].skip_reason == "language_not_selected"
+
+
+def test_plan_backup_role_filter_records_skip(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {
+        "1111": [
+            make_spec(source_id="inst1", role="installer"),
+            make_spec(source_id="extra1", role="extra"),
+        ]
+    }
+
+    plan = plan_backup(tmp_path, games, specs, layout, file_roles=["installer"])
+
+    assert len(plan.downloads) == 1
+    assert len(plan.skips) == 1
+    assert plan.skips[0].spec.source_id == "extra1"
+    assert plan.skips[0].skip_reason == "role_not_selected"
+
+
 def test_backup_plan_properties() -> None:
     dest = Path("/fake")
     spec = make_spec()

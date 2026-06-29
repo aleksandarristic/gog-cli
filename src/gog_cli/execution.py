@@ -87,8 +87,10 @@ def handle_backup(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         return ExitCode.SUCCESS
+    if not args.yes:
+        print_human(["Dry run. Re-run with --yes to execute."])
+        return ExitCode.SUCCESS
 
-    _confirm_if_needed(args, files_to_process)
     return _execute_files("backup", context, selected, files_to_process)
 
 
@@ -112,8 +114,10 @@ def handle_sync(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         return ExitCode.SUCCESS
+    if not args.yes:
+        print_human(["Dry run. Re-run with --yes to execute."])
+        return ExitCode.SUCCESS
 
-    _confirm_if_needed(args, files_to_process)
     return _execute_files("sync", context, selected, files_to_process)
 
 
@@ -278,14 +282,7 @@ def _confirm_if_needed(args: argparse.Namespace, files_to_process: list[PlannedF
         return
     if args.yes:
         return
-    if args.no_interactive or not is_interactive():
-        raise UsageError("Refusing to modify backups without confirmation. Re-run with --yes.")
-
-    print("Proceed? [y/N] ", end="", file=sys.stderr)
-    sys.stderr.flush()
-    answer = sys.stdin.readline().strip().lower()
-    if answer not in {"y", "yes"}:
-        raise UsageError("Backup operation cancelled.")
+    raise UsageError("Refusing to modify backups without confirmation. Re-run with --yes.")
 
 
 def _execute_files(

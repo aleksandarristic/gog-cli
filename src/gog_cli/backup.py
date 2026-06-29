@@ -92,15 +92,18 @@ def plan_backup(
 
         specs = downloads.get(product_id, [])
         for spec in specs:
-            if platforms and spec.platform and spec.platform not in platforms:
-                continue
-            if languages and spec.language and spec.language not in languages:
-                continue
-            if file_roles and spec.role not in file_roles:
-                continue
-
             dest_dir = _role_dir(layout, game_dir, spec.role)
             dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
+
+            if platforms and spec.platform and spec.platform not in platforms:
+                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="platform_not_selected"))
+                continue
+            if languages and spec.language and spec.language not in languages:
+                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="language_not_selected"))
+                continue
+            if file_roles and spec.role not in file_roles:
+                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="role_not_selected"))
+                continue
 
             if dest.exists():
                 planned.append(
