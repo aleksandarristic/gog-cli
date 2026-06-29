@@ -267,7 +267,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         "-S", "--sort",
         choices=["title", "size", "status", "files"],
         metavar="COLUMN",
-        help="Sort results by column: title (A-Z), size (largest first), status (A-Z), files (most first).",
+        help="Sort by column: title (A-Z), size (largest first), status (A-Z), files (most first).",
     )
     backed_up.set_defaults(handler=handle_list_backed_up)
 

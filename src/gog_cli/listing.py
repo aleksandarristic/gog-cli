@@ -13,7 +13,12 @@ from gog_cli.api import search_catalog
 from gog_cli.backup import BackupLayout
 from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, UsageError
-from gog_cli.metadata import extract_download_summary, extract_size_summary, normalize_genres, normalize_platforms
+from gog_cli.metadata import (
+    extract_download_summary,
+    extract_size_summary,
+    normalize_genres,
+    normalize_platforms,
+)
 from gog_cli.output import (
     GAME_CURRENT,
     GAME_ERROR,
@@ -68,7 +73,10 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
 
     plat_header = "  ".join(f"{h:>9}" for _, h in plat_cols)
     plat_sep = "  ".join(f"{'-' * 9}" for _ in plat_cols)
-    header = f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}  {plat_header}  {'Extras':>9}  {'Total':>9}"
+    header = (
+        f"{'ID':>10}  {'Title':<34}  {'Year':>4}  {'Genre':<18}"
+        f"  {plat_header}  {'Extras':>9}  {'Total':>9}"
+    )
     sep = f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {plat_sep}  {'-' * 9}  {'-' * 9}"
     lines: list[str] = [header, sep]
 
@@ -88,10 +96,15 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
             f"{_format_size(total or None):>9}"
         )
 
-    totals_by_plat = {k: sum((g.get("installer_sizes") or {}).get(k) or 0 for g in games) for k, _ in plat_cols}
+    totals_by_plat = {
+        k: sum((g.get("installer_sizes") or {}).get(k) or 0 for g in games)
+        for k, _ in plat_cols
+    }
     total_e = sum(game.get("extras_size") or 0 for game in games)
     grand_total = sum(totals_by_plat.values()) + total_e
-    plat_total_cells = "  ".join(f"{_format_size(totals_by_plat[k] or None):>9}" for k, _ in plat_cols)
+    plat_total_cells = "  ".join(
+        f"{_format_size(totals_by_plat[k] or None):>9}" for k, _ in plat_cols
+    )
     lines.append(sep)
     lines.append(
         f"{'Totals':<72}  "
@@ -390,7 +403,9 @@ def _sort_purchased(games: list[dict[str, Any]], key: str | None) -> list[dict[s
     if key == "title":
         return sorted(games, key=lambda g: str(g.get("title", "")).casefold())
     if key == "year":
-        return sorted(games, key=lambda g: (g.get("release_year") is None, g.get("release_year") or 0))
+        return sorted(games, key=lambda g: (
+            g.get("release_year") is None, g.get("release_year") or 0
+        ))
     if key == "size":
         def _total(g: dict[str, Any]) -> int:
             inst = g.get("installer_sizes") or {}

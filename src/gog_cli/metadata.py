@@ -135,7 +135,10 @@ def extract_size_summary(product_or_cache: dict[str, Any]) -> dict[str, Any]:
         for file_entry in entry.get("files") or []:
             if not isinstance(file_entry, dict):
                 continue
-            raw = file_entry["size"] if file_entry.get("size") is not None else entry.get("total_size")
+            raw = (
+                file_entry["size"] if file_entry.get("size") is not None
+                else entry.get("total_size")
+            )
             size = _parse_int(raw)
             if size:
                 installer_sizes[platform] = installer_sizes.get(platform, 0) + size
@@ -147,7 +150,10 @@ def extract_size_summary(product_or_cache: dict[str, Any]) -> dict[str, Any]:
         for file_entry in entry.get("files") or []:
             if not isinstance(file_entry, dict):
                 continue
-            raw = file_entry["size"] if file_entry.get("size") is not None else entry.get("total_size")
+            raw = (
+                file_entry["size"] if file_entry.get("size") is not None
+                else entry.get("total_size")
+            )
             size = _parse_int(raw)
             if size:
                 extras_total += size

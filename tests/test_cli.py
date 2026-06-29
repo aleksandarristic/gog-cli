@@ -460,7 +460,7 @@ def test_list_purchased_shows_size_columns(
     _seed_download_cache_with_bonus(
         tmp_path,
         2222,
-        installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1073741824)],
+        installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1 << 30)],
     )
 
     assert main(["list", "purchased"]) == 0
@@ -506,7 +506,9 @@ def test_list_purchased_size_fields_in_json(
     _seed_download_cache_with_bonus(
         tmp_path,
         1111,
-        installers=[_sized_installer("setup_win", product_id=1111, os_name="windows", size=1073741824)],
+        installers=[
+            _sized_installer("setup_win", product_id=1111, os_name="windows", size=1 << 30)
+        ],
         bonus_content=[_bonus_entry("art_book", size=1048576)],
     )
 
@@ -590,8 +592,8 @@ def test_list_backed_up_sort_title(
     _seed_manifest(
         destination,
         [
-            {"product_id": 1111, "title": "Zelda", "directory": "zelda", "status": "current", "files": []},
-            {"product_id": 2222, "title": "Arcanum", "directory": "arcanum", "status": "current", "files": []},
+            {"product_id": 1111, "title": "Zelda", "directory": "zelda", "status": "current", "files": []},  # noqa: E501
+            {"product_id": 2222, "title": "Arcanum", "directory": "arcanum", "status": "current", "files": []},  # noqa: E501
         ],
     )
 
