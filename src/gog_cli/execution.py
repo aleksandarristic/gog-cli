@@ -18,6 +18,7 @@ from gog_cli.api import GogApiClient
 from gog_cli.aria2c import check_aria2c, download_via_aria2c
 from gog_cli.auth import FileTokenStore
 from gog_cli.backup import (
+    BackupPlan,
     FileSpec,
     PlannedFile,
     _game_product_id,
@@ -80,17 +81,34 @@ def handle_backup(args: argparse.Namespace) -> int:
         languages=context.languages,
         file_roles=context.file_roles,
     )
+
+    if (
+        getattr(args, "check_free_space", False)
+        and plan.disk_free_bytes is not None
+        and plan.disk_free_bytes < plan.disk_required_bytes
+    ):
+        print(
+            f"Insufficient disk space: {_human_size(plan.disk_free_bytes)} free, "
+            f"{_human_size(plan.disk_required_bytes)} required.",
+            file=sys.stderr,
+        )
+        return ExitCode.FILESYSTEM
+
+    is_dry_run = args.dry_run or not args.yes
+    output_format = OutputFormat(getattr(args, "output_format", "human"))
+
+    if is_dry_run and output_format == OutputFormat.JSON:
+        _print_plan_json(plan, context, selected, args)
+        return ExitCode.SUCCESS
+
+    _print_backup_plan(plan, context, selected, args, is_dry_run=is_dry_run)
+
+    if is_dry_run:
+        return ExitCode.SUCCESS
+
     files_to_process = [
         file for file in plan.planned if file.action in ("download", "verify", "skip")
     ]
-    _print_backup_plan(plan, len(files_to_process))
-
-    if args.dry_run:
-        return ExitCode.SUCCESS
-    if not args.yes:
-        print_human(["Dry run. Re-run with --yes to execute."])
-        return ExitCode.SUCCESS
-
     return _execute_files("backup", context, selected, files_to_process)
 
 
@@ -630,24 +648,225 @@ def _filename_from_headers(session: requests.Session, signed_url: str) -> str | 
 def _human_size(n: int | None) -> str:
     if n is None:
         return "?"
-    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    units = ("B", "KB", "MB", "GB", "TB")
     x = float(n)
     for unit in units[:-1]:
         if x < 1024:
+            if unit == "B":
+                return f"{int(x)} {unit}"
             return f"{x:.1f} {unit}"
         x /= 1024
-    return f"{x:.1f} {units[-1]}"
+    return f"{x:.2f} {units[-1]}"
 
 
-def _print_backup_plan(plan: Any, files_to_process: int) -> None:
-    print_human([f"Plan: {files_to_process} files to download, {len(plan.skips)} already present."])
-    for pf in plan.downloads:
-        name = pf.spec.filename or pf.spec.source_id
-        role = pf.spec.role
-        platform = pf.spec.platform or "-"
-        size = _human_size(pf.spec.expected_size)
-        print(f"  {name:<55} {role:<12} {platform:<10} {size:>10}")
-    print_human([f"Estimated total: {_human_size(plan.disk_required_bytes)}."])
+def _group_planned_by_game(
+    plan: BackupPlan,
+    selected: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], list[PlannedFile]]]:
+    games_dir = BackupLayout(plan.destination).games_dir
+    slug_to_game = {
+        sanitize_filename(g.get("slug") or _game_product_id(g)): g
+        for g in selected
+    }
+    slug_to_files: dict[str, list[PlannedFile]] = {s: [] for s in slug_to_game}
+    for pf in plan.planned:
+        try:
+            slug = pf.dest.relative_to(games_dir).parts[0]
+            if slug in slug_to_files:
+                slug_to_files[slug].append(pf)
+        except (ValueError, IndexError):
+            pass
+    return [(slug_to_game[s], slug_to_files[s]) for s in slug_to_game]
+
+
+def _print_backup_plan(
+    plan: BackupPlan,
+    context: _ExecutionContext,
+    selected: list[dict[str, Any]],
+    args: argparse.Namespace,
+    *,
+    is_dry_run: bool = False,
+) -> None:
+    show_storage = getattr(args, "storage", False) or getattr(args, "check_free_space", False)
+    show_summary_only = getattr(args, "summary", False)
+    changed_only = getattr(args, "changed_only", False)
+    explain_skips = getattr(args, "explain_skips", False)
+    sep = "─" * 72
+
+    print_human([f"Backup plan — {plan.destination}"])
+
+    platforms_label = ",".join(context.platforms) if context.platforms else "all"
+    languages_label = ",".join(context.languages) if context.languages else "all"
+    roles_label = ",".join(context.file_roles) if context.file_roles else "all"
+    print_human([
+        f"Policy: platforms={platforms_label}  languages={languages_label}  roles={roles_label}"
+    ])
+
+    groups = _group_planned_by_game(plan, selected)
+    complete_games = sum(
+        1 for _, files in groups
+        if files and all(pf.skip_reason == "already_exists" for pf in files)
+    )
+    games_needing_downloads = sum(
+        1 for _, files in groups if any(pf.action == "download" for pf in files)
+    )
+    games_missing_locally = sum(
+        1 for _, files in groups
+        if files and all(pf.action == "download" for pf in files)
+    )
+    print_human([
+        f"Scope: {len(context.library)} owned | {len(selected)} selected | "
+        f"{complete_games} complete | {games_needing_downloads} need downloads | "
+        f"{games_missing_locally} missing locally"
+    ])
+    print_human([""])
+    n_dl = len(plan.downloads)
+    size_est = _human_size(plan.disk_required_bytes)
+    print_human([f"Downloads: {n_dl} file(s)  •  {size_est} estimated"])
+
+    already_present = sum(1 for pf in plan.skips if pf.skip_reason == "already_exists")
+    n_orphaned = len(plan.orphaned_local_files)
+    print_human([f"Local state: {already_present} already present  •  {n_orphaned} orphaned"])
+
+    skip_counts: dict[str, int] = {}
+    for pf in plan.skips:
+        if pf.skip_reason and pf.skip_reason != "already_exists":
+            skip_counts[pf.skip_reason] = skip_counts.get(pf.skip_reason, 0) + 1
+    if skip_counts:
+        parts = [f"{v} {k.replace('_', '-')}" for k, v in sorted(skip_counts.items())]
+        print_human([f"Filtered out: {' | '.join(parts)}"])
+
+    if show_storage:
+        free_b = plan.disk_free_bytes
+        free_label = _human_size(free_b) if free_b is not None else "unknown"
+        req_label = _human_size(plan.disk_required_bytes)
+        enough = plan.disk_free_bytes is None or plan.disk_free_bytes >= plan.disk_required_bytes
+        status = "OK" if enough else "INSUFFICIENT"
+        print_human([f"Disk: required={req_label}  •  free={free_label}  •  {status}"])
+
+    if not show_summary_only:
+        print_human(["", sep])
+        for game, files in groups:
+            title = game.get("title", "")
+            slug = game.get("slug", "")
+            is_complete = bool(files) and all(pf.skip_reason == "already_exists" for pf in files)
+
+            if changed_only and is_complete:
+                continue
+
+            header = f"{slug} — {title}"
+            if is_complete:
+                header += "  (complete)"
+            print(header)
+
+            for pf in files:
+                name = pf.spec.filename or pf.spec.source_id
+                role = pf.spec.role
+                platform = pf.spec.platform or "-"
+
+                if pf.action == "download":
+                    size = _human_size(pf.spec.expected_size)
+                    print(f"  +  {name:<50}  {role:<12}  {platform:<10}  {size}")
+                elif pf.skip_reason == "already_exists":
+                    print(f"  =  {name:<50}  {role:<12}  {platform:<10}  (present)")
+                else:
+                    reason = f"  [{pf.skip_reason}]" if explain_skips else ""
+                    print(f"  -  {name:<50}  {role:<12}  {platform:<10}{reason}")
+
+        print_human([sep])
+
+    if is_dry_run:
+        print_human([
+            "",
+            "Dry run — no files were downloaded. Re-run with --yes to execute.",
+        ])
+
+
+def _print_plan_json(
+    plan: BackupPlan,
+    context: _ExecutionContext,
+    selected: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> None:
+    groups = _group_planned_by_game(plan, selected)
+    complete_games = sum(
+        1 for _, files in groups
+        if files and all(pf.skip_reason == "already_exists" for pf in files)
+    )
+    games_needing_downloads = sum(
+        1 for _, files in groups if any(pf.action == "download" for pf in files)
+    )
+    games_missing_locally = sum(
+        1 for _, files in groups
+        if files and all(pf.action == "download" for pf in files)
+    )
+    already_present = sum(1 for pf in plan.skips if pf.skip_reason == "already_exists")
+    scope = "all" if getattr(args, "all_games", False) else "selected"
+
+    actions_by_game = []
+    for game, files in groups:
+        game_downloads = [
+            {
+                "action": "download",
+                "source_id": pf.spec.source_id,
+                "filename": pf.spec.filename or pf.spec.source_id,
+                "role": pf.spec.role,
+                "platform": pf.spec.platform,
+                "language": pf.spec.language,
+                "size_bytes": pf.spec.expected_size,
+            }
+            for pf in files
+            if pf.action == "download"
+        ]
+        if game_downloads:
+            actions_by_game.append({
+                "game_id": _game_product_id(game),
+                "slug": game.get("slug", ""),
+                "title": game.get("title", ""),
+                "actions": game_downloads,
+            })
+
+    skipped = [
+        {
+            "game_id": _game_product_id(game),
+            "slug": game.get("slug", ""),
+            "filename": pf.spec.filename or pf.spec.source_id,
+            "reason": pf.skip_reason,
+            "platform": pf.spec.platform,
+        }
+        for game, files in groups
+        for pf in files
+        if pf.skip_reason and pf.skip_reason != "already_exists"
+    ]
+
+    data = {
+        "target_directory": str(plan.destination),
+        "mode": "dry_run",
+        "scope": scope,
+        "summary": {
+            "owned_games": len(context.library),
+            "selected_games": len(selected),
+            "complete_games": complete_games,
+            "games_needing_updates": games_needing_downloads,
+            "games_missing_locally": games_missing_locally,
+            "already_present_files": already_present,
+            "new_files": len(plan.downloads),
+            "total_download_files": len(plan.downloads),
+            "total_download_bytes": plan.disk_required_bytes,
+            "orphaned_local_files": len(plan.orphaned_local_files),
+        },
+        "disk": {
+            "free_bytes": plan.disk_free_bytes,
+            "required_bytes": plan.disk_required_bytes,
+            "enough_space": (
+                plan.disk_free_bytes is None or plan.disk_free_bytes >= plan.disk_required_bytes
+            ),
+        },
+        "actions": actions_by_game,
+        "skipped": skipped,
+    }
+
+    print_json(JsonEnvelope(command="backup plan", data=data))
 
 
 def _print_sync_plan(plan: SyncPlan, files_to_process: int) -> None:

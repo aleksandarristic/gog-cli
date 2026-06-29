@@ -86,6 +86,7 @@ def plan_backup(
 ) -> BackupPlan:
     planned: list[PlannedFile] = []
     product_ids: list[str] = []
+    game_dirs: list[Path] = []
     disk_required_bytes = 0
 
     for game in games:
@@ -93,6 +94,7 @@ def plan_backup(
         slug = sanitize_filename(game.get("slug") or product_id)
         game_dir = layout.game_dir(slug)
         product_ids.append(product_id)
+        game_dirs.append(game_dir)
 
         specs = downloads.get(product_id, [])
         for spec in specs:
@@ -100,13 +102,19 @@ def plan_backup(
             dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
 
             if platforms and spec.platform and spec.platform not in platforms:
-                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="platform_not_selected"))
+                planned.append(PlannedFile(
+                    spec=spec, dest=dest, action="skip", skip_reason="platform_not_selected"
+                ))
                 continue
             if languages and spec.language and spec.language not in languages:
-                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="language_not_selected"))
+                planned.append(PlannedFile(
+                    spec=spec, dest=dest, action="skip", skip_reason="language_not_selected"
+                ))
                 continue
             if file_roles and spec.role not in file_roles:
-                planned.append(PlannedFile(spec=spec, dest=dest, action="skip", skip_reason="role_not_selected"))
+                planned.append(PlannedFile(
+                    spec=spec, dest=dest, action="skip", skip_reason="role_not_selected"
+                ))
                 continue
 
             if dest.exists():
@@ -118,6 +126,19 @@ def plan_backup(
                 if spec.expected_size:
                     disk_required_bytes += spec.expected_size
 
+    planned_dests = {pf.dest for pf in planned}
+    orphaned_local_files: list[Path] = []
+    for game_dir in game_dirs:
+        if not game_dir.exists():
+            continue
+        for path in game_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.name == "manifest.json" or path.suffix == ".tmp":
+                continue
+            if path not in planned_dests:
+                orphaned_local_files.append(path)
+
     disk_free_bytes: int | None = None
     if destination.exists():
         disk_free_bytes = shutil.disk_usage(destination).free
@@ -128,6 +149,7 @@ def plan_backup(
         planned=planned,
         disk_required_bytes=disk_required_bytes,
         disk_free_bytes=disk_free_bytes,
+        orphaned_local_files=orphaned_local_files,
     )
 
 

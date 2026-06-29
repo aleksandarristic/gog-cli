@@ -268,6 +268,41 @@ def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type
         action="store_true",
         help="Show the plan without downloading files.",
     )
+    backup.add_argument(
+        "--format",
+        choices=["human", "json"],
+        default="human",
+        dest="output_format",
+        help="Output format (default: human).",
+    )
+    backup.add_argument(
+        "--check-free-space",
+        action="store_true",
+        dest="check_free_space",
+        help="Fail if available disk space is less than the estimated download size.",
+    )
+    backup.add_argument(
+        "--storage",
+        action="store_true",
+        help="Show disk usage section in plan output.",
+    )
+    backup.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print summary only, omit per-game file detail.",
+    )
+    backup.add_argument(
+        "--changed-only",
+        action="store_true",
+        dest="changed_only",
+        help="Show only games with pending downloads in per-game detail.",
+    )
+    backup.add_argument(
+        "--explain-skips",
+        action="store_true",
+        dest="explain_skips",
+        help="Annotate skipped files with their filter reason.",
+    )
     _add_selector_flags(backup)
     _add_interaction_flags(backup)
     backup.set_defaults(handler=handle_backup)

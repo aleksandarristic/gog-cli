@@ -466,7 +466,9 @@ def handle_search_catalog(args: argparse.Namespace) -> int:
     return ExitCode.SUCCESS
 
 
-def _normalize_catalog_result(product: dict[str, Any], owned_ids: set[int] | None) -> dict[str, Any]:
+def _normalize_catalog_result(
+    product: dict[str, Any], owned_ids: set[int] | None
+) -> dict[str, Any]:
     # catalog.gog.com/v1 returns id as a string
     product_id_raw = product.get("id")
     if isinstance(product_id_raw, str) and product_id_raw.isdigit():
@@ -479,7 +481,11 @@ def _normalize_catalog_result(product: dict[str, Any], owned_ids: set[int] | Non
     # releaseDate is "YYYY.MM.DD" in v1 catalog
     release_year_val: int | None = None
     release_date_raw = product.get("releaseDate") or ""
-    if isinstance(release_date_raw, str) and len(release_date_raw) >= 4 and release_date_raw[:4].isdigit():
+    if (
+        isinstance(release_date_raw, str)
+        and len(release_date_raw) >= 4
+        and release_date_raw[:4].isdigit()
+    ):
         release_year_val = int(release_date_raw[:4])
 
     platforms = normalize_platforms(product.get("operatingSystems", []))

@@ -531,7 +531,7 @@ def test_backup_dry_run(
     _seed_backup_state(tmp_path, monkeypatch)
 
     assert main(["backup", "--destination", str(tmp_path / "backups"), "--dry-run", "--all"]) == 0
-    assert "Plan:" in capsys.readouterr().out
+    assert "Backup plan" in capsys.readouterr().out
 
 
 def test_backup_dry_run_no_destination(capsys: pytest.CaptureFixture[str]) -> None:
@@ -688,7 +688,7 @@ def test_backup_without_yes_is_implicit_dry_run(
 
     assert main(["backup", "--destination", str(tmp_path / "backups"), "--all"]) == 0
     out = capsys.readouterr().out
-    assert "Plan:" in out
+    assert "Backup plan" in out
     assert "Dry run" in out
     assert not (tmp_path / "backups" / "games").exists()
 
@@ -1001,7 +1001,9 @@ def _catalog_product(
     price_amount: str = "9.99",
     is_free: bool = False,
 ) -> dict:
-    genre_list = [{"name": g, "slug": g.lower()} for g in (genres if genres is not None else ["RPG"])]
+    genre_list = [
+        {"name": g, "slug": g.lower()} for g in (genres if genres is not None else ["RPG"])
+    ]
     final_amount = "0.00" if is_free else price_amount
     return {
         "id": str(product_id),
@@ -1072,7 +1074,17 @@ def test_search_catalog_owned_annotation_when_library_cache_exists(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _set_home(monkeypatch, tmp_path)
-    _seed_library_cache(tmp_path, [{"product_id": 1207658924, "title": "The Witcher", "slug": "the_witcher", "platforms": []}])
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 1207658924,
+                "title": "The Witcher",
+                "slug": "the_witcher",
+                "platforms": [],
+            },
+        ],
+    )
     _stub_catalog([
         _catalog_product(1207658924, "The Witcher: Enhanced Edition"),
         _catalog_product(9999999, "Some Other Game", "some_other_game"),
@@ -1106,7 +1118,17 @@ def test_search_catalog_human_shows_ownership_column(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _set_home(monkeypatch, tmp_path)
-    _seed_library_cache(tmp_path, [{"product_id": 1207658924, "title": "The Witcher", "slug": "the_witcher", "platforms": []}])
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 1207658924,
+                "title": "The Witcher",
+                "slug": "the_witcher",
+                "platforms": [],
+            },
+        ],
+    )
     _stub_catalog([
         _catalog_product(1207658924, "The Witcher: Enhanced Edition"),
         _catalog_product(9999999, "Some Other Game", "some_other_game"),
@@ -1366,6 +1388,184 @@ def _manifest_game(
             }
         ],
     }
+
+
+# --- TASK-0040: disk space check ---
+
+
+def test_backup_check_free_space_fails_when_insufficient(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import shutil
+
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+    destination.mkdir(parents=True, exist_ok=True)
+
+    fake_usage = type("du", (), {"free": 1, "used": 999, "total": 1000})()
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: fake_usage)
+
+    result = main(["backup", "--destination", str(destination), "--all", "--check-free-space"])
+    assert result == 6
+    assert "Insufficient disk space" in capsys.readouterr().err
+
+
+def test_backup_storage_flag_shows_disk_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+    destination.mkdir(parents=True, exist_ok=True)
+
+    assert main(["backup", "--destination", str(destination), "--all", "--storage"]) == 0
+    assert "Disk:" in capsys.readouterr().out
+
+
+# --- TASK-0041: rich plan output ---
+
+
+def test_backup_plan_rich_output_sections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(["backup", "--destination", str(tmp_path / "backups"), "--dry-run", "--all"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "Backup plan" in out
+    assert "Downloads:" in out
+    assert "Local state:" in out
+    assert "Dry run" in out
+
+
+def test_backup_plan_summary_flag_omits_per_game_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--all",
+                "--summary",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "Backup plan" in out
+    assert "witcher_3" not in out
+
+
+def test_backup_plan_changed_only_omits_complete_games(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    destination = tmp_path / "backups"
+    # Pre-create witcher_3 file so it shows as complete
+    witcher_file = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    witcher_file.parent.mkdir(parents=True, exist_ok=True)
+    witcher_file.write_text("data")
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(destination),
+                "--dry-run",
+                "--game",
+                "witcher_3",
+                "--changed-only",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "witcher_3" not in out
+
+
+def test_backup_plan_explain_skips_shows_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    en_entry = _download_entry("en_setup", product_id=1111)
+    de_entry = {**_download_entry("de_setup", product_id=1111), "language": "de"}
+    _seed_download_cache(tmp_path, 1111, [en_entry, de_entry])
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--game",
+                "witcher_3",
+                "--language",
+                "en",
+                "--explain-skips",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "language_not_selected" in out
+
+
+# --- TASK-0043: JSON plan output ---
+
+
+def test_backup_dry_run_json_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--all",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["command"] == "backup plan"
+    assert parsed["data"]["mode"] == "dry_run"
+    assert "summary" in parsed["data"]
+    assert "disk" in parsed["data"]
+    assert "actions" in parsed["data"]
+    assert "skipped" in parsed["data"]
+    assert parsed["data"]["summary"]["selected_games"] == 2
 
 
 def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:
