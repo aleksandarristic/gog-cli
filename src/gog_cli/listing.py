@@ -79,6 +79,21 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
             f"{_format_size(total or None):>9}"
         )
 
+    total_w = sum((game.get("installer_sizes") or {}).get("windows") or 0 for game in games)
+    total_m = sum((game.get("installer_sizes") or {}).get("mac") or 0 for game in games)
+    total_l = sum((game.get("installer_sizes") or {}).get("linux") or 0 for game in games)
+    total_e = sum(game.get("extras_size") or 0 for game in games)
+    grand_total = total_w + total_m + total_l + total_e
+    lines.append(f"{'-' * 10}  {'-' * 34}  {'-' * 4}  {'-' * 18}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}  {'-' * 9}")
+    lines.append(
+        f"{'Totals':<72}  "
+        f"{_format_size(total_w or None):>9}  "
+        f"{_format_size(total_m or None):>9}  "
+        f"{_format_size(total_l or None):>9}  "
+        f"{_format_size(total_e or None):>9}  "
+        f"{_format_size(grand_total or None):>9}"
+    )
+
     cache_age = _format_cache_age(fetched_at)
     lines.append(f"{len(games)} games. Cache age: {cache_age}.")
 
@@ -137,6 +152,14 @@ def handle_list_backed_up(args: argparse.Namespace) -> int:
             f"{game.get('status', GAME_MISSING)}"
         )
 
+    total_files = sum(game.get("files") or 0 for game in games)
+    total_size = sum(game.get("total_size_bytes") or 0 for game in games)
+    lines.append(f"{'-' * 10}  {'-' * 28}  {'-' * 20}  {'-' * 5}  {'-' * 8}  {'-' * 6}")
+    lines.append(
+        f"{'Totals':<62}  "
+        f"{total_files:>5}  "
+        f"{_format_size(total_size or None):>8}"
+    )
     lines.append(f"{len(games)} games backed up to {layout.root}.")
     print_human(lines)
     return ExitCode.SUCCESS
