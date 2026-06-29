@@ -92,7 +92,7 @@ def test_plan_backup_download(tmp_path: Path) -> None:
 
     assert len(plan.downloads) == 1
     assert plan.downloads[0].action == "download"
-    assert plan.estimated_bytes == 1000
+    assert plan.disk_required_bytes == 1000
 
 
 def test_plan_backup_skip_existing(tmp_path: Path) -> None:
@@ -110,7 +110,7 @@ def test_plan_backup_skip_existing(tmp_path: Path) -> None:
 
     assert len(plan.skips) == 1
     assert plan.skips[0].skip_reason == "already_exists"
-    assert plan.estimated_bytes == 0
+    assert plan.disk_required_bytes == 0
 
 
 def test_plan_backup_platform_filter(tmp_path: Path) -> None:
@@ -206,6 +206,39 @@ def test_backup_plan_properties() -> None:
         PlannedFile(spec=spec, dest=dest / "a", action="download"),
         PlannedFile(spec=spec, dest=dest / "b", action="skip", skip_reason="already_exists"),
     ]
-    plan = BackupPlan(destination=dest, games=["1111"], planned=planned, estimated_bytes=1000)
+    plan = BackupPlan(destination=dest, games=["1111"], planned=planned, disk_required_bytes=1000)
     assert len(plan.downloads) == 1
     assert len(plan.skips) == 1
+
+
+def test_plan_backup_disk_free_bytes_when_destination_exists(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {"1111": [make_spec()]}
+
+    plan = plan_backup(tmp_path, games, specs, layout)
+
+    assert plan.disk_free_bytes is not None
+    assert plan.disk_free_bytes > 0
+
+
+def test_plan_backup_disk_free_bytes_none_when_destination_missing(tmp_path: Path) -> None:
+    destination = tmp_path / "nonexistent"
+    layout = BackupLayout(root=destination)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {"1111": [make_spec()]}
+
+    plan = plan_backup(destination, games, specs, layout)
+
+    assert plan.disk_free_bytes is None
+
+
+def test_plan_backup_new_fields_default_empty(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    specs = {"1111": [make_spec()]}
+
+    plan = plan_backup(tmp_path, games, specs, layout)
+
+    assert plan.orphaned_local_files == []
+    assert plan.warnings == []

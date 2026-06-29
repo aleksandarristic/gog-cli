@@ -647,7 +647,7 @@ def _print_backup_plan(plan: Any, files_to_process: int) -> None:
         platform = pf.spec.platform or "-"
         size = _human_size(pf.spec.expected_size)
         print(f"  {name:<55} {role:<12} {platform:<10} {size:>10}")
-    print_human([f"Estimated total: {_human_size(plan.estimated_bytes)}."])
+    print_human([f"Estimated total: {_human_size(plan.disk_required_bytes)}."])
 
 
 def _print_sync_plan(plan: SyncPlan, files_to_process: int) -> None:

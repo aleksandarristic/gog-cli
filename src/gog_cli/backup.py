@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -45,7 +46,10 @@ class BackupPlan:
     destination: Path
     games: list[str]
     planned: list[PlannedFile]
-    estimated_bytes: int
+    disk_required_bytes: int
+    disk_free_bytes: int | None = None
+    orphaned_local_files: list[Path] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def downloads(self) -> list[PlannedFile]:
@@ -82,7 +86,7 @@ def plan_backup(
 ) -> BackupPlan:
     planned: list[PlannedFile] = []
     product_ids: list[str] = []
-    estimated_bytes = 0
+    disk_required_bytes = 0
 
     for game in games:
         product_id = _game_product_id(game)
@@ -112,13 +116,18 @@ def plan_backup(
             else:
                 planned.append(PlannedFile(spec=spec, dest=dest, action="download"))
                 if spec.expected_size:
-                    estimated_bytes += spec.expected_size
+                    disk_required_bytes += spec.expected_size
+
+    disk_free_bytes: int | None = None
+    if destination.exists():
+        disk_free_bytes = shutil.disk_usage(destination).free
 
     return BackupPlan(
         destination=destination,
         games=product_ids,
         planned=planned,
-        estimated_bytes=estimated_bytes,
+        disk_required_bytes=disk_required_bytes,
+        disk_free_bytes=disk_free_bytes,
     )
 
 
