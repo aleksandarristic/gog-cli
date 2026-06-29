@@ -162,7 +162,7 @@ def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # typ
         help="Re-fetch all download metadata even if recently cached.",
     )
     refresh.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
@@ -192,14 +192,14 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         epilog=_LIST_PURCHASED_EXAMPLES,
     )
     purchased.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
         help="Output format (default: human).",
     )
     purchased.add_argument(
-        "--platform",
+        "-p", "--platform",
         action="append",
         default=[],
         dest="platforms",
@@ -207,7 +207,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         help="Filter by platform (windows, mac, linux). Repeatable.",
     )
     purchased.add_argument(
-        "--year",
+        "-y", "--year",
         metavar="RANGE",
         help="Filter by release year, e.g. 1998..2005, 2020.., or ..2000.",
     )
@@ -217,7 +217,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         help="Keep games with unknown release years when --year is used.",
     )
     purchased.add_argument(
-        "--genre",
+        "-G", "--genre",
         action="append",
         default=[],
         dest="genres",
@@ -230,12 +230,12 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         help="Keep games with unknown genres when --genre is used.",
     )
     purchased.add_argument(
-        "--search",
+        "-s", "--search",
         metavar="TEXT",
         help="Fuzzy title search.",
     )
     purchased.add_argument(
-        "--sort",
+        "-S", "--sort",
         choices=["title", "year", "size"],
         metavar="COLUMN",
         help="Sort results by column: title (A-Z), year (oldest first), size (largest first).",
@@ -250,21 +250,21 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         epilog=_LIST_BACKUP_EXAMPLES,
     )
     backed_up.add_argument(
-        "--destination",
+        "-d", "--destination",
         required=False,
         default=None,
         type=Path,
         help="Backup destination directory to inspect (default: from config).",
     )
     backed_up.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
         help="Output format (default: human).",
     )
     backed_up.add_argument(
-        "--sort",
+        "-S", "--sort",
         choices=["title", "size", "status", "files"],
         metavar="COLUMN",
         help="Sort results by column: title (A-Z), size (largest first), status (A-Z), files (most first).",
@@ -285,14 +285,14 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
     )
     search.add_argument("query", help="Search query (title keywords).")
     search.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
         help="Output format (default: human).",
     )
     search.add_argument(
-        "--platform",
+        "-p", "--platform",
         action="append",
         default=[],
         dest="platforms",
@@ -300,12 +300,12 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
         help="Filter by platform (windows, mac, linux). Repeatable.",
     )
     search.add_argument(
-        "--year",
+        "-y", "--year",
         metavar="RANGE",
         help="Filter by release year, e.g. 1998..2005, 2020.., or ..2000.",
     )
     search.add_argument(
-        "--genre",
+        "-G", "--genre",
         action="append",
         default=[],
         dest="genres",
@@ -318,7 +318,7 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
 def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
     grp = parser.add_argument_group("game selection")
     grp.add_argument(
-        "--game",
+        "-g", "--game",
         dest="games",
         metavar="SELECTOR",
         action="append",
@@ -326,7 +326,7 @@ def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
         help="Select a game by product id, slug, or exact title. Repeatable.",
     )
     grp.add_argument(
-        "--games-from",
+        "-F", "--games-from",
         dest="games_from",
         metavar="PATH",
         action="append",
@@ -335,20 +335,20 @@ def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
         help="Read game selectors from a UTF-8 text file, one per line. Repeatable.",
     )
     grp.add_argument(
-        "--exclude",
+        "-x", "--exclude",
         metavar="SELECTOR",
         action="append",
         default=[],
         help="Exclude a game by product id, slug, or exact title. Repeatable.",
     )
     grp.add_argument(
-        "--all",
+        "-a", "--all",
         dest="all_games",
         action="store_true",
         help="Select all owned games.",
     )
     grp.add_argument(
-        "--platform",
+        "-p", "--platform",
         metavar="PLATFORM",
         action="append",
         default=[],
@@ -356,7 +356,7 @@ def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
         help="Limit to this platform (e.g. windows, linux, mac). Repeatable.",
     )
     grp.add_argument(
-        "--language",
+        "-l", "--language",
         metavar="LANG",
         action="append",
         default=[],
@@ -373,13 +373,13 @@ def _add_interaction_flags(parser: argparse.ArgumentParser) -> None:
         help="Skip confirmation prompts.",
     )
     grp.add_argument(
-        "--no-interactive",
+        "-n", "--no-interactive",
         dest="no_interactive",
         action="store_true",
         help="Fail rather than prompt when selectors are missing.",
     )
     grp.add_argument(
-        "--downloader",
+        "-D", "--downloader",
         choices=["direct", "aria2c"],
         default="direct",
         help="Download engine to use (default: direct).",
@@ -398,7 +398,7 @@ def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type
         epilog=_BACKUP_EXAMPLES,
     )
     backup.add_argument(
-        "--destination",
+        "-d", "--destination",
         type=Path,
         help="Directory where game backups should be stored.",
     )
@@ -408,7 +408,7 @@ def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type
         help="Show the plan without downloading files.",
     )
     backup.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
@@ -466,12 +466,12 @@ def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         help="Game selector by product id, slug, or exact title.",
     )
     plan.add_argument(
-        "--destination",
+        "-d", "--destination",
         type=Path,
         help="Directory where game backups should be stored.",
     )
     plan.add_argument(
-        "--format",
+        "-f", "--format",
         choices=["human", "json"],
         default="human",
         dest="output_format",
@@ -522,7 +522,7 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         epilog=_SYNC_EXAMPLES,
     )
     sync.add_argument(
-        "--destination",
+        "-d", "--destination",
         type=Path,
         help="Backup destination directory to sync.",
     )
