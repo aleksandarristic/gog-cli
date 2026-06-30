@@ -1,8 +1,7 @@
-# GOG API Research Notes
+# GOG API Notes
 
-Research spike for TASK-0019. Documents the GOG authentication flow, library
-endpoint, download metadata endpoint, and download URL retrieval well enough to
-implement TASK-0004 (auth) and TASK-0005 (refresh/parser).
+Documents the GOG authentication flow, library endpoints, download metadata
+endpoints, and download URL retrieval as used by gog-cli.
 
 **Status of this document:** All endpoints documented here are unofficial and
 reverse-engineered. They have been stable since roughly 2015 and are used by
@@ -13,15 +12,15 @@ without notice.
 
 ## Sources
 
+The following open-source projects were analyzed to understand the API surface
+and cross-check findings:
+
 - **Minigalaxy** (Python GOG client): `github.com/sharkwouter/minigalaxy` —
   `minigalaxy/api.py` is the primary Python reference.
 - **lgogdownloader** (C++ GOG downloader): `github.com/Sude-/lgogdownloader` —
   `src/galaxyapi.cpp` and `src/downloader.cpp` for download URL flow.
 - **Unofficial GOG API docs**: `gogapidocs.readthedocs.io` — community
   documentation cross-referenced against the source implementations above.
-
-Do not copy code from these projects. Use them to understand the API surface
-and cross-check findings.
 
 ---
 
@@ -43,11 +42,11 @@ Launcher, and others. They represent the "Galaxy client" OAuth application on
 GOG's auth server.
 
 **Risk:** GOG could rotate these credentials, but has not done so in 10+ years.
-Monitor lgogdownloader issues for any breakage signals.
+The lgogdownloader issue tracker is a useful signal for any breakage.
 
 ### 1.2 Login URL Construction
 
-Send the user to a browser with this URL:
+Login is initiated by directing the user's browser to:
 
 ```
 https://auth.gog.com/auth
@@ -66,17 +65,16 @@ After successful login, the browser is redirected to:
 https://embed.gog.com/on_login_success?origin=client&code=<authorization_code>
 ```
 
-The `code` query parameter is the authorization code to exchange for tokens.
-For a CLI, the options are:
-- Open a browser and capture the redirect via a localhost callback server.
-- Print the login URL and ask the user to paste the redirect URL or just the
-  `code` value (headless/SSH fallback).
+The `code` query parameter is the authorization code to be exchanged for
+tokens. In a CLI context this redirect can be captured via a localhost callback
+server, or the user can paste the redirect URL or bare `code` value as a
+headless/SSH fallback.
 
 ### 1.3 Token Exchange
 
 **Endpoint:** `GET https://auth.gog.com/token`
 
-Exchange an authorization code for access and refresh tokens:
+An authorization code is exchanged for access and refresh tokens:
 
 ```
 GET https://auth.gog.com/token
@@ -114,7 +112,7 @@ expects.
 
 **Endpoint:** `GET https://auth.gog.com/token`
 
-Exchange a refresh token for a new access token:
+A refresh token is exchanged for a new access token:
 
 ```
 GET https://auth.gog.com/token
@@ -125,7 +123,7 @@ GET https://auth.gog.com/token
 ```
 
 **Response:** Same shape as token exchange. A new `refresh_token` is also
-returned; replace the stored one.
+returned and replaces the stored one.
 
 ### 1.5 Making Authenticated Requests
 
@@ -135,10 +133,10 @@ All endpoints below require:
 Authorization: Bearer <access_token>
 ```
 
-Refresh proactively before the token expires (`expires_in` seconds after
-issue). Store the expiry timestamp alongside the non-secret session metadata.
-Never store the `access_token` or `refresh_token` in plain files unless
-explicitly documented as an approved fallback (see TASK-0004).
+Tokens are refreshed proactively before expiry (`expires_in` seconds after
+issue). The expiry timestamp is stored alongside non-secret session metadata.
+The `access_token` and `refresh_token` are not stored in plain files unless
+explicitly documented as an approved fallback.
 
 ---
 
@@ -172,14 +170,15 @@ explicitly documented as an approved fallback (see TASK-0004).
 }
 ```
 
-Useful fields for gog-cli: `userId`, `username`. Store `userId` as a
-non-secret account discriminator in session metadata. Never log `email`.
+The `userId` and `username` fields are used by gog-cli. `userId` is stored as
+a non-secret account discriminator in session metadata. The `email` field is
+not logged.
 
 ---
 
 ## 3. Owned Games Library
 
-Two endpoints cover library discovery. Use both.
+Two endpoints cover library discovery, both of which are used.
 
 ### 3.1 Quick Product ID List
 
@@ -252,13 +251,13 @@ Typical request: `?mediaType=1&page=1`
 }
 ```
 
-**Pagination:** Iterate `page` from `1` to `totalPages`. With `productsPerPage`
-at 100, most libraries fit in one page. Always check `totalPages`.
+**Pagination:** Pages are iterated from `1` to `totalPages`. With
+`productsPerPage` at 100, most libraries fit in one page.
 
 **Key fields for gog-cli:**
 - `id` — stable GOG product identifier
 - `title` — display title
-- `slug` — URL-safe name, useful as directory name (sanitize before use)
+- `slug` — URL-safe name, useful as directory name (sanitized before use)
 - `worksOn` — platform availability
 
 ---
@@ -369,7 +368,7 @@ at 100, most libraries fit in one page. Always check `totalPages`.
 | DLC installers | `installer` (scoped to DLC product_id) |
 
 **Key fields per file entry:**
-- `id` — stable source file identifier within this product; use as `source_id`
+- `id` — stable source file identifier within this product; used as `source_id`
 - `os` — `windows`, `osx`, `linux`
 - `language` — ISO 639-1 code (e.g. `en`, `fr`, `de`)
 - `version` — installer version string (not always present on extras)
@@ -383,7 +382,7 @@ at 100, most libraries fit in one page. Always check `totalPages`.
 
 Accepts `ids=1234567890,9876543210` (comma-separated, up to 50). Returns an
 array of product objects with the same shape as the single-product endpoint.
-Useful for bulk prefetching during refresh.
+Used for bulk prefetching during refresh.
 
 ---
 
@@ -409,26 +408,26 @@ returns a time-limited signed CDN URL.
 ```
 
 - `downlink` — the actual signed CDN URL to download. **Short-lived** (minutes
-  to hours). Do not cache this URL between sessions. Fetch it immediately
+  to hours). This URL is not cached between sessions and is fetched immediately
   before starting the download.
 - `checksum` — URL to an XML file containing MD5 hash and chunk-level integrity
   data (see §6).
 
 ### Step 2: Download from the CDN URL
 
-Stream the file from `downlink`. The CDN supports HTTP range requests
-(`Range: bytes=N-`) for resumable downloads; test for a `206 Partial Content`
-response before assuming resume is safe.
+The file is streamed from `downlink`. The CDN supports HTTP range requests
+(`Range: bytes=N-`) for resumable downloads; a `206 Partial Content` response
+confirms that resume is safe.
 
-**Important implementation notes:**
-- Fetch the downlink URL immediately before starting each download. Do not
-  store signed CDN URLs in the manifest or cache — they expire and may contain
-  account-identifying parameters.
+**Implementation notes:**
+- The downlink URL is resolved immediately before each download begins. Signed
+  CDN URLs are not stored in the manifest or cache — they expire and may
+  contain account-identifying parameters.
 - If the access token expires during a long download, only the downlink
-  resolution step needs a fresh token; the CDN URL itself is independently
+  resolution step requires a fresh token; the CDN URL itself is independently
   signed.
-- Re-resolve the downlink URL on resume or retry rather than reusing a stored
-  CDN URL.
+- The downlink URL is re-resolved on resume or retry rather than reusing a
+  stored CDN URL.
 
 ---
 
@@ -453,11 +452,12 @@ Key attributes:
 - `chunks` — number of chunks (for parallel/segmented downloads)
 - `chunk[@from]`, `chunk[@to]`, `chunk[text]` — byte range and MD5 per chunk
 
-For gog-cli's initial implementation: verify `total_size` and the top-level
-`md5`. Chunk-level verification can be added later.
+gog-cli verifies `total_size` and the top-level `md5`. Chunk-level
+verification is not currently implemented.
 
-Note: not all files have a checksum URL. `bonus_content` files sometimes omit
-it. Treat a missing or empty `checksum` field as "verification limited to size."
+Not all files include a checksum URL — `bonus_content` files sometimes omit
+it. A missing or empty `checksum` field is treated as "verification limited
+to size."
 
 ---
 
@@ -481,7 +481,7 @@ documented by GOG for third-party use.
 
 ---
 
-## 8. Galaxy Content System (Out of Scope for Now)
+## 8. Galaxy Content System (Not Currently Used)
 
 lgogdownloader also uses a "Galaxy" content-system API for delta/incremental
 updates:
@@ -491,22 +491,21 @@ updates:
 - `GET https://content-system.gog.com/products/{id}/secure_link?generation=2&path={path}`
 
 This system enables file-level delta updates and parallel chunk downloads, but
-is significantly more complex than the installer-based approach. It is out of
-scope for gog-cli's initial implementation.
-
-**Recommendation:** Implement the installer-based flow (§3–§6) first. The
-Galaxy content system can be added later as an optional fast-sync path.
+is significantly more complex than the installer-based approach. It is not used
+by gog-cli's current implementation. It is documented here as a potential
+future path for incremental sync support.
 
 ---
 
 ## 9. Known Instability and Breakage History
 
 - **Auth endpoint structure** has been stable since at least 2015. No breaking
-  changes observed in lgogdownloader issue history during that period.
+  changes have been observed in lgogdownloader issue history during that period.
 - **`embed.gog.com` library endpoints** occasionally return unexpected shapes
   when GOG deploys website changes. lgogdownloader issue #123 shows an example
-  of a login failure when the site changed. The parser should fail clearly and
-  tell the user to file a bug rather than silently returning empty results.
+  of a login failure when the site changed. gog-cli's parser is designed to
+  fail clearly with a prompt to report the issue, rather than silently
+  returning empty results.
 - **Token endpoint uses GET** (not POST). This is non-standard OAuth 2.0 but
   has remained consistent. If GOG ever enforces POST, token exchange will
   break with a 405.
@@ -517,43 +516,40 @@ Galaxy content system can be added later as an optional fast-sync path.
   only matters at download time. Re-resolving the downlink URL before each
   download is the correct mitigation.
 - **`bonus_content` type field**: values like `"soundtrack"`, `"artbook"`,
-  `"wallpaper"` are inconsistent. Do not rely on the type string for anything
-  beyond display. Map all `bonus_content` to the `extra` role.
+  `"wallpaper"` are inconsistent. The type string is not relied upon for
+  anything beyond display. All `bonus_content` entries are mapped to the
+  `extra` role.
 
 ---
 
-## 10. Recommended Approach for gog-cli
+## 10. How gog-cli Uses These Endpoints
 
-### Auth (TASK-0004)
+### Authentication
 
-1. Use the known `client_id` / `client_secret` / `redirect_uri`.
-2. Construct the login URL and open it in a browser (or print it for headless use).
-3. Accept the redirect URL or bare `code` from the user as a paste fallback.
-4. Exchange the code for tokens via `GET https://auth.gog.com/token`.
-5. Store `refresh_token` in OS keyring; store `expires_in` + issue time and
-   `user_id` in non-secret session state.
-6. Refresh the access token automatically when `expires_in` has elapsed.
-7. On refresh failure, mark session expired and prompt `gog auth login`.
+Authentication uses the known `client_id`, `client_secret`, and `redirect_uri`.
+The login URL is constructed and opened in a browser; for headless use, it is
+printed for the user to open manually. The resulting authorization code is
+exchanged for tokens via `GET https://auth.gog.com/token`. The `refresh_token`
+is stored in the OS keyring; the expiry timestamp and `user_id` are stored in
+non-secret session state. The access token is refreshed automatically when
+expired. On refresh failure, the session is marked expired and the user is
+prompted to run `gog auth login`. The `access_token` and `refresh_token` are
+not stored in manifests, caches, or config files, and are not logged.
 
-Do not store `access_token` or `refresh_token` in manifest, cache, or config
-files. Do not log them. Do not pass them as command-line arguments.
+### Library Discovery and Refresh
 
-### Refresh / Library Discovery (TASK-0005)
+The paginated library endpoint (`GET /account/getFilteredProducts?mediaType=1`)
+is iterated page by page until `page == totalPages`. For each product, `id`,
+`title`, `slug`, and `worksOn` are stored in the library cache. Download
+metadata is fetched via `GET https://api.gog.com/products/{id}?expand=downloads`
+per game, or in batches of up to 50 via the batch endpoint, and cached
+separately per product ID. Downlink URLs and signed CDN URLs are not cached.
 
-1. Call `GET /account/getFilteredProducts?mediaType=1&page=1` to get the
-   paginated library.
-2. Iterate pages until `page == totalPages`.
-3. For each product, store `id`, `title`, `slug`, `worksOn` in the library cache.
-4. For download metadata, call `GET https://api.gog.com/products/{id}?expand=downloads`
-   per game (or in batches of up to 50 via the batch endpoint).
-5. Cache the download metadata separately per product ID.
-6. Do not cache `downlink` URLs or signed CDN URLs.
+### Download URL Resolution
 
-### Download URL (TASK-0007)
-
-1. Look up `files[].downlink` from the cached download metadata.
-2. Immediately before starting a download, `GET <downlink>` with a fresh
-   Bearer token to resolve the signed CDN URL.
-3. Stream the file from the CDN URL, using `Range` headers for resume support.
-4. After download, fetch the `checksum` XML and verify MD5 and total size.
-5. Never store the signed CDN URL in the manifest.
+The `files[].downlink` URL is looked up from cached download metadata.
+Immediately before each download begins, a `GET <downlink>` call with a fresh
+Bearer token resolves the signed CDN URL. The file is then streamed from the
+CDN URL using `Range` headers for resume support. After download, the checksum
+XML is fetched and the MD5 and total size are verified. The signed CDN URL is
+never stored in the manifest.

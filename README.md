@@ -1,6 +1,10 @@
 # gog-cli
 
 [![CI](https://github.com/aleksandarristic/gog-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/aleksandarristic/gog-cli/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/gog-cli)](https://pypi.org/project/gog-cli/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 `gog` is a Python CLI for backing up a user's owned DRM-free GOG game library.
 
@@ -15,6 +19,12 @@ It is focused on safe, scriptable workflows:
 ## Install
 
 Requires Python 3.12 or newer.
+
+```sh
+pip install gog-cli
+```
+
+To install the latest development version directly from GitHub:
 
 ```sh
 pip install git+https://github.com/aleksandarristic/gog-cli.git
