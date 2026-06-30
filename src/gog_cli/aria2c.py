@@ -13,6 +13,9 @@ from pathlib import Path
 from gog_cli.downloader import DownloadResult, _md5_file
 from gog_cli.errors import UsageError
 
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
+
 
 def find_aria2c() -> Path | None:
     """Return path to aria2c binary or None if not found."""
@@ -32,6 +35,43 @@ def check_aria2c(required: bool = True) -> Path:
     return path
 
 
+def _options_for_size(expected_size: int | None, policy: str = "auto") -> tuple[int, int]:
+    """Return (split, max connections per server) for an expected download size."""
+    if policy == "conservative":
+        if expected_size is None:
+            return (2, 2)
+        if expected_size < 512 * _MIB:
+            return (1, 1)
+        if expected_size < 2 * _GIB:
+            return (2, 2)
+        if expected_size < 8 * _GIB:
+            return (4, 4)
+        return (8, 8)
+
+    if policy == "aggressive":
+        if expected_size is None:
+            return (8, 8)
+        if expected_size < 64 * _MIB:
+            return (2, 2)
+        if expected_size < 512 * _MIB:
+            return (4, 4)
+        if expected_size < 2 * _GIB:
+            return (8, 8)
+        return (16, 16)
+
+    if expected_size is None:
+        return (4, 4)
+    if expected_size < 64 * _MIB:
+        return (1, 1)
+    if expected_size < 512 * _MIB:
+        return (2, 2)
+    if expected_size < 2 * _GIB:
+        return (4, 4)
+    if expected_size < 8 * _GIB:
+        return (8, 8)
+    return (16, 16)
+
+
 def download_via_aria2c(
     url: str,
     dest: Path,
@@ -39,6 +79,7 @@ def download_via_aria2c(
     headers: dict[str, str] | None = None,
     expected_size: int | None = None,
     expected_md5: str | None = None,
+    aria2c_policy: str = "auto",
     aria2c_path: Path | None = None,
     logger: logging.Logger | None = None,
 ) -> DownloadResult:
@@ -59,6 +100,7 @@ def download_via_aria2c(
         with os.fdopen(fd, "w") as fh:
             fh.write(url + "\n")
 
+        split, connections = _options_for_size(expected_size, aria2c_policy)
         cmd = [
             str(binary),
             "--input-file",
@@ -69,8 +111,8 @@ def download_via_aria2c(
             dest.name,
             "--auto-file-renaming=false",
             "--continue=true",
-            "--split=4",
-            "--max-connection-per-server=4",
+            f"--split={split}",
+            f"--max-connection-per-server={connections}",
         ]
 
         # Headers appear in process args — unavoidable with aria2c's CLI interface.

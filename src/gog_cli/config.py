@@ -13,8 +13,10 @@ from gog_cli.state import AppPaths
 
 _VALID_DOWNLOADERS = frozenset({"direct", "aria2c"})
 _VALID_FORMATS = frozenset({"human", "json"})
+_VALID_ARIA2C_POLICIES = frozenset({"auto", "conservative", "aggressive"})
 _KNOWN_DEFAULTS_KEYS = frozenset(
     {
+        "aria2c_policy",
         "destination",
         "downloader",
         "file_roles",
@@ -30,6 +32,7 @@ _KNOWN_DEFAULTS_KEYS = frozenset(
 class Config:
     destination: Path | None = None
     downloader: str = "direct"
+    aria2c_policy: str = "auto"
     platforms: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     file_roles: list[str] = field(default_factory=list)
@@ -70,6 +73,8 @@ def _apply_toml(config: Config, path: Path) -> None:
         config.destination = Path(str(defaults["destination"]))
     if "downloader" in defaults:
         config.downloader = str(defaults["downloader"])
+    if "aria2c_policy" in defaults:
+        config.aria2c_policy = str(defaults["aria2c_policy"])
     if "platforms" in defaults:
         config.platforms = [str(v) for v in defaults["platforms"]]
     if "languages" in defaults:
@@ -87,6 +92,8 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> None:
         config.destination = Path(dest)
     if downloader := env.get("GOG_CLI_DOWNLOADER"):
         config.downloader = downloader
+    if aria2c_policy := env.get("GOG_CLI_ARIA2C_POLICY"):
+        config.aria2c_policy = aria2c_policy
     if platforms := env.get("GOG_CLI_PLATFORMS"):
         config.platforms = [p.strip() for p in platforms.split(",") if p.strip()]
     if languages := env.get("GOG_CLI_LANGUAGES"):
@@ -117,4 +124,9 @@ def _validate(config: Config) -> None:
         raise UsageError(
             f"Invalid format {config.output_format!r}."
             f" Must be one of: {', '.join(sorted(_VALID_FORMATS))}"
+        )
+    if config.aria2c_policy not in _VALID_ARIA2C_POLICIES:
+        raise UsageError(
+            f"Invalid aria2c_policy {config.aria2c_policy!r}."
+            f" Must be one of: {', '.join(sorted(_VALID_ARIA2C_POLICIES))}"
         )

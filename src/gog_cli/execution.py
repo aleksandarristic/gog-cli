@@ -161,6 +161,7 @@ class _ExecutionContext:
     manifest: dict[str, Any]
     output_format: OutputFormat
     downloader: str
+    aria2c_policy: str
     platforms: list[str]
     languages: list[str]
     file_roles: list[str]
@@ -199,6 +200,7 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
         manifest=manifest,
         output_format=OutputFormat(config.output_format),
         downloader=downloader,
+        aria2c_policy=config.aria2c_policy,
         platforms=args.platforms or config.platforms,
         languages=args.languages or config.languages,
         file_roles=config.file_roles,
@@ -397,6 +399,7 @@ def _execute_files(
             planned.dest,
             expected_size,
             expected_md5,
+            context.aria2c_policy,
             downloader,
         )
         signed_url = ""
@@ -465,6 +468,7 @@ def _download(
     dest: Path,
     expected_size: int | None,
     expected_md5: str | None,
+    aria2c_policy: str,
     downloader: Downloader,
 ) -> DownloadResult:
     if downloader_name == "aria2c":
@@ -473,6 +477,7 @@ def _download(
             dest,
             expected_size=expected_size,
             expected_md5=expected_md5,
+            aria2c_policy=aria2c_policy,
         )
     return downloader.download(
         signed_url,
