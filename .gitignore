@@ -26,3 +26,6 @@ pip-wheel-metadata/
 
 # Internal task tracking
 .task-management/
+
+# Local agent environment note (session-specific, never committed)
+.agent-env.local.md
