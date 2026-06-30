@@ -48,6 +48,10 @@ gog plan --destination /path/to/backups --all --summary
 gog backup --destination /path/to/backups --games-from games.txt --dry-run
 ```
 
+## Roadmap
+
+See [docs/TODO.md](docs/TODO.md) for planned features and improvements.
+
 ## Basic Workflow
 
 ```sh
