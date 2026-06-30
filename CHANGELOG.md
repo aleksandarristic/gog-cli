@@ -7,6 +7,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-06-30
+
+### Added
+- Size-aware `aria2c` download option policies with `auto`, `conservative`, and
+  `aggressive` modes.
+- `aria2c_policy` config file key and `GOG_CLI_ARIA2C_POLICY` environment
+  variable.
+- Dedicated config reference documentation.
+
+---
+
 ## [0.2.1] — 2026-06-29
 
 ### Fixed

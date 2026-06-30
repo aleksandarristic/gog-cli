@@ -52,6 +52,11 @@ gog backup --destination /path/to/backups --games-from games.txt --dry-run
 
 See [docs/TODO.md](docs/TODO.md) for planned features and improvements.
 
+## Reference
+
+- [CLI Reference](docs/cli-reference.md)
+- [Config Reference](docs/config-reference.md)
+
 ## Basic Workflow
 
 ```sh
@@ -162,6 +167,12 @@ combine explicit game selectors with `--all`.
 ```sh
 gog backup --destination /path/to/backups --games-from games.txt --downloader aria2c --yes
 ```
+
+When file size metadata is available, `gog` chooses `aria2c` connection settings
+by size: very small files use one connection, mid-size files use two or four,
+and multi-GB installers use eight or sixteen. Configure
+`aria2c_policy = "conservative"` or `aria2c_policy = "aggressive"` to tune this
+behavior.
 
 Without `--yes`, backup and sync commands print a dry-run plan and exit without
 downloading or modifying backup files.

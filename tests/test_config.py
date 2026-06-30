@@ -15,6 +15,7 @@ def test_defaults(tmp_path: Path) -> None:
 
     assert config.destination is None
     assert config.downloader == "direct"
+    assert config.aria2c_policy == "auto"
     assert config.platforms == []
     assert config.languages == []
     assert config.file_roles == []
@@ -34,6 +35,17 @@ def test_toml_destination_and_downloader(tmp_path: Path) -> None:
 
     assert config.destination == Path("/mnt/backups")
     assert config.downloader == "aria2c"
+
+
+def test_toml_aria2c_policy(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".config" / "gog-cli"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text('[defaults]\naria2c_policy = "aggressive"\n')
+
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    config = load_config(paths, env={})
+
+    assert config.aria2c_policy == "aggressive"
 
 
 def test_toml_list_fields(tmp_path: Path) -> None:
@@ -66,6 +78,13 @@ def test_env_destination_and_downloader(tmp_path: Path) -> None:
 
     assert config.destination == Path("/mnt/env")
     assert config.downloader == "aria2c"
+
+
+def test_env_aria2c_policy(tmp_path: Path) -> None:
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    config = load_config(paths, env={"GOG_CLI_ARIA2C_POLICY": "conservative"})
+
+    assert config.aria2c_policy == "conservative"
 
 
 def test_env_list_fields(tmp_path: Path) -> None:
@@ -138,6 +157,12 @@ def test_invalid_format_raises_usage_error(tmp_path: Path) -> None:
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     with pytest.raises(UsageError, match="Invalid format"):
         load_config(paths, env={"GOG_CLI_FORMAT": "yaml"})
+
+
+def test_invalid_aria2c_policy_raises_usage_error(tmp_path: Path) -> None:
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    with pytest.raises(UsageError, match="Invalid aria2c_policy"):
+        load_config(paths, env={"GOG_CLI_ARIA2C_POLICY": "maximum"})
 
 
 def test_invalid_bool_env_var_raises_usage_error(tmp_path: Path) -> None:

@@ -9,6 +9,9 @@ import pytest
 from gog_cli.aria2c import check_aria2c, download_via_aria2c, find_aria2c
 from gog_cli.errors import UsageError
 
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
+
 # --- find_aria2c / check_aria2c ---
 
 
@@ -183,6 +186,55 @@ def test_download_passes_auth_header(tmp_path: Path) -> None:
         )
 
     assert any("Authorization: Bearer token123" in arg for arg in captured_cmd[0])
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected_size", "split", "connections"),
+    [
+        ("auto", None, "4", "4"),
+        ("auto", 32 * _MIB, "1", "1"),
+        ("auto", 128 * _MIB, "2", "2"),
+        ("auto", 1 * _GIB, "4", "4"),
+        ("auto", 4 * _GIB, "8", "8"),
+        ("auto", 10 * _GIB, "16", "16"),
+        ("conservative", None, "2", "2"),
+        ("conservative", 128 * _MIB, "1", "1"),
+        ("conservative", 1 * _GIB, "2", "2"),
+        ("conservative", 4 * _GIB, "4", "4"),
+        ("conservative", 10 * _GIB, "8", "8"),
+        ("aggressive", None, "8", "8"),
+        ("aggressive", 32 * _MIB, "2", "2"),
+        ("aggressive", 128 * _MIB, "4", "4"),
+        ("aggressive", 1 * _GIB, "8", "8"),
+        ("aggressive", 4 * _GIB, "16", "16"),
+    ],
+)
+def test_download_chooses_aria2c_options_by_size(
+    tmp_path: Path,
+    policy: str,
+    expected_size: int | None,
+    split: str,
+    connections: str,
+) -> None:
+    dest = tmp_path / "setup.exe"
+    captured_cmd: list[list[str]] = []
+
+    def side_effect(cmd, **kwargs):  # noqa: ANN001
+        captured_cmd.append(cmd)
+        dest.write_bytes(b"data")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("subprocess.run", MagicMock(side_effect=side_effect)):
+        download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=expected_size,
+            aria2c_policy=policy,
+        )
+
+    assert f"--split={split}" in captured_cmd[0]
+    assert f"--max-connection-per-server={connections}" in captured_cmd[0]
 
 
 def test_download_temp_file_cleaned_up(tmp_path: Path) -> None:

@@ -1,7 +1,8 @@
 # CLI Reference
 
-Complete reference for all `gog` commands, flags, configuration, and exit
-codes.
+Complete reference for all `gog` commands, flags, and exit codes. See
+[Config Reference](config-reference.md) for config file and environment variable
+details.
 
 ---
 
@@ -51,41 +52,11 @@ Configuration is resolved from three sources in order of increasing priority:
 
 CLI flags override all three.
 
-### Config file
-
-The config file is loaded from:
-
-```
-$XDG_CONFIG_HOME/gog-cli/config.toml   (default: ~/.config/gog-cli/config.toml)
-```
-
-All keys are optional and live under a `[defaults]` table:
-
-```toml
-[defaults]
-destination  = "/path/to/backups"    # default --destination for backup/sync/plan
-downloader   = "direct"              # "direct" or "aria2c"
-platforms    = ["windows", "linux"]  # restrict to these platforms by default
-languages    = ["en"]                # restrict to these language codes by default
-file_roles   = []                    # restrict to these file roles (empty = all)
-format       = "human"               # "human" or "json"
-interactive  = true                  # false = fail instead of prompting
-```
-
-`file_roles` accepts any combination of: `installer`, `patch`, `language_pack`,
-`extra`, `manual`.
-
-### Environment variables
-
-| Variable | Equivalent config key | Notes |
-|---|---|---|
-| `GOG_CLI_DESTINATION` | `destination` | Path to backup root |
-| `GOG_CLI_DOWNLOADER` | `downloader` | `direct` or `aria2c` |
-| `GOG_CLI_PLATFORMS` | `platforms` | Comma-separated, e.g. `windows,linux` |
-| `GOG_CLI_LANGUAGES` | `languages` | Comma-separated, e.g. `en,de` |
-| `GOG_CLI_FILE_ROLES` | `file_roles` | Comma-separated |
-| `GOG_CLI_FORMAT` | `format` | `human` or `json` |
-| `GOG_CLI_INTERACTIVE` | `interactive` | `1`/`true`/`yes` or `0`/`false`/`no` |
+The config file is loaded from
+`$XDG_CONFIG_HOME/gog-cli/config.toml`, defaulting to
+`~/.config/gog-cli/config.toml`. All keys are optional and live under a
+`[defaults]` table. See [Config Reference](config-reference.md) for the full
+schema, environment variables, and `aria2c_policy` details.
 
 ### App state directories
 
@@ -549,7 +520,12 @@ Game selection flags are described in [Game Selectors](#game-selectors).
   resumption (`Range: bytes=N-`). No additional dependencies required.
 - `aria2c`: delegates to the `aria2c` binary, which must be installed and on
   `PATH`. Supports multi-connection downloads. Pass
-  `--downloader aria2c` to enable.
+  `--downloader aria2c` to enable. When file size metadata is available,
+  the default `auto` policy scales connection settings by file size:
+  `<64 MiB` uses one connection, `64-512 MiB` uses two, `512 MiB-2 GiB` uses
+  four, `2-8 GiB` uses eight, and `8 GiB+` uses sixteen. Unknown sizes keep the
+  default of four. Set `aria2c_policy = "conservative"` to use fewer
+  connections, or `aria2c_policy = "aggressive"` to use more.
 
 **Execution output (human):**
 
