@@ -6,6 +6,7 @@ import json
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
+from types import TracebackType
 from typing import Any
 
 from gog_cli.state import utc_timestamp
@@ -67,6 +68,34 @@ def print_error(message: str, *, file: Any = None) -> None:
     if file is None:
         file = sys.stderr
     print(message, file=file)
+
+
+class TransientStatus:
+    """Show a temporary one-line status message on TTY stderr."""
+
+    def __init__(self, message: str, *, file: Any = None) -> None:
+        self.message = message
+        self.file = file if file is not None else sys.stderr
+        self.enabled = bool(getattr(self.file, "isatty", lambda: False)())
+        self._width = 0
+
+    def __enter__(self) -> TransientStatus:
+        if self.enabled:
+            text = f"{self.message} "
+            self._width = len(text)
+            self.file.write(text)
+            self.file.flush()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self.enabled:
+            self.file.write("\r" + (" " * self._width) + "\r")
+            self.file.flush()
 
 
 # ---------------------------------------------------------------------------

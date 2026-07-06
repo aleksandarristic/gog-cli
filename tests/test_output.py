@@ -27,10 +27,16 @@ from gog_cli.output import (
     GAME_UNVERIFIED,
     JsonEnvelope,
     OutputFormat,
+    TransientStatus,
     print_error,
     print_human,
     print_json,
 )
+
+
+class _TtyBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 def test_json_envelope_to_dict_has_required_fields() -> None:
@@ -90,6 +96,24 @@ def test_print_error_writes_to_stderr_not_stdout() -> None:
     err_buf = io.StringIO()
     print_error("something went wrong", file=err_buf)
     assert "something went wrong" in err_buf.getvalue()
+
+
+def test_transient_status_writes_and_clears_tty_line() -> None:
+    err_buf = _TtyBuffer()
+
+    with TransientStatus("Searching...", file=err_buf):
+        assert err_buf.getvalue() == "Searching... "
+
+    assert err_buf.getvalue() == "Searching... \r             \r"
+
+
+def test_transient_status_is_suppressed_for_non_tty() -> None:
+    err_buf = io.StringIO()
+
+    with TransientStatus("Searching...", file=err_buf):
+        pass
+
+    assert err_buf.getvalue() == ""
 
 
 def test_output_format_values() -> None:
