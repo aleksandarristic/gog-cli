@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,12 +17,17 @@ _LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
 _PRODUCT_URL_1111 = "https://api.gog.com/products/1111"
 
 
+class _TtyBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])
 
     assert exc_info.value.code == 0
-    assert "gog 0.3.0" in capsys.readouterr().out
+    assert "gog 0.3.1" in capsys.readouterr().out
 
 
 def test_list_purchased_human(
@@ -1341,7 +1348,8 @@ def test_search_catalog_json(
     _stub_catalog([_catalog_product()])
 
     assert main(["search", "witcher", "--format", "json"]) == 0
-    parsed = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
     assert parsed["command"] == "search"
     game = parsed["data"][0]
     assert game["product_id"] == 1207658924
@@ -1351,6 +1359,27 @@ def test_search_catalog_json(
     assert "RPG" in game["genres"]
     assert "price" in game
     assert "is_available" in game
+    assert captured.err == ""
+
+
+@rsps_lib.activate
+def test_search_catalog_shows_transient_status_on_tty_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _stub_catalog([_catalog_product()])
+    err_buf = _TtyBuffer()
+    monkeypatch.setattr(sys, "stderr", err_buf)
+
+    assert main(["search", "witcher"]) == 0
+
+    assert "The Witcher: Enhanced Edition" in capsys.readouterr().out
+    err = err_buf.getvalue()
+    assert err.startswith("Searching GOG catalog... ")
+    assert err.endswith("\r")
+    assert "\n" not in err
 
 
 @rsps_lib.activate

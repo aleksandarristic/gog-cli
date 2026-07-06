@@ -28,6 +28,7 @@ from gog_cli.output import (
     GAME_UNVERIFIED,
     JsonEnvelope,
     OutputFormat,
+    TransientStatus,
     print_human,
     print_json,
 )
@@ -537,7 +538,8 @@ def handle_search_catalog(args: argparse.Namespace) -> int:
     except (StateFileMissingError, StateFileCorruptError, StateFileInvalidError):
         pass
 
-    raw = search_catalog(query)
+    with TransientStatus("Searching GOG catalog..."):
+        raw = search_catalog(query)
     games = [_normalize_catalog_result(p, owned_ids) for p in raw.get("products", [])]
     games = _apply_catalog_filters(games, args)
 
