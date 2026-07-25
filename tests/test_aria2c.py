@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gog_cli.aria2c import check_aria2c, download_via_aria2c, find_aria2c
+from gog_cli.aria2c import check_aria2c, default_downloader, download_via_aria2c, find_aria2c
 from gog_cli.errors import UsageError
 
 _MIB = 1024 * 1024
@@ -40,6 +40,16 @@ def test_check_aria2c_returns_path_when_found(tmp_path: Path) -> None:
     with patch("shutil.which", return_value=str(fake)):
         result = check_aria2c()
     assert result == fake
+
+
+def test_default_downloader_is_aria2c_when_found() -> None:
+    with patch("shutil.which", return_value="/usr/bin/aria2c"):
+        assert default_downloader() == "aria2c"
+
+
+def test_default_downloader_is_direct_when_not_found() -> None:
+    with patch("shutil.which", return_value=None):
+        assert default_downloader() == "direct"
 
 
 # --- download_via_aria2c ---
@@ -87,6 +97,42 @@ def test_download_skips_existing(tmp_path: Path) -> None:
 
     mock_run.assert_not_called()
     assert result.status == "skipped"
+
+
+def test_download_redownloads_when_existing_size_mismatches(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    dest.write_bytes(b"stale leftover from a colliding path")
+    content = b"real content"
+    mock_run = _make_aria2c_success(dest, content)
+
+    with patch("subprocess.run", mock_run):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=len(content),
+        )
+
+    mock_run.assert_called_once()
+    assert result.status == "verified"
+    assert dest.read_bytes() == content
+
+
+def test_download_size_mismatch_accepted_when_not_strict(tmp_path: Path) -> None:
+    dest = tmp_path / "bonus.pdf"
+    content = b"bonus content"
+
+    with patch("subprocess.run", _make_aria2c_success(dest, content)):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/bonus.pdf",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=len(content) + 100,
+            strict_size=False,
+        )
+
+    assert result.status == "verified"
+    assert result.expected_size == len(content)
 
 
 def test_download_fails_on_nonzero_exit(tmp_path: Path) -> None:

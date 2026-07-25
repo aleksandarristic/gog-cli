@@ -15,7 +15,7 @@ import requests
 
 from gog_cli import __version__, log
 from gog_cli.api import GogApiClient
-from gog_cli.aria2c import check_aria2c, download_via_aria2c
+from gog_cli.aria2c import check_aria2c, default_downloader, download_via_aria2c
 from gog_cli.auth import FileTokenStore
 from gog_cli.backup import (
     BackupPlan,
@@ -114,9 +114,6 @@ def handle_backup(args: argparse.Namespace) -> int:
 
 
 def handle_plan(args: argparse.Namespace) -> int:
-    positional_selectors = list(getattr(args, "selectors", []) or [])
-    if positional_selectors:
-        args.games = [*(getattr(args, "games", []) or []), *positional_selectors]
     args.dry_run = True
     args.yes = False
     args.no_interactive = True
@@ -171,11 +168,7 @@ class _ExecutionContext:
 def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _ExecutionContext:
     paths = resolve_app_paths()
     config = load_config(paths)
-    destination = (args.destination or config.destination)
-    if destination is None:
-        raise UsageError(
-            "Backup destination is required. Use --destination or GOG_CLI_DESTINATION."
-        )
+    destination = args.destination or config.destination or Path.cwd()
     destination = Path(destination).expanduser()
     if destination.exists() and not destination.is_dir():
         raise FilesystemError(f"Backup destination is not a directory: {destination}")
@@ -189,7 +182,7 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
     else:
         manifest = _read_manifest(layout.manifest_file, missing_ok=True)
 
-    downloader = args.downloader or config.downloader
+    downloader = args.downloader or config.downloader or default_downloader()
 
     return _ExecutionContext(
         paths=paths,
@@ -203,7 +196,7 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
         aria2c_policy=config.aria2c_policy,
         platforms=args.platforms or config.platforms,
         languages=args.languages or config.languages,
-        file_roles=config.file_roles,
+        file_roles=args.file_roles or config.file_roles,
         client=GogApiClient(FileTokenStore(paths)),
     )
 
@@ -257,10 +250,21 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
             files = entry.get("files", [])
             if not isinstance(files, list):
                 continue
-            for file_entry in files:
+            entry_id = str(entry.get("id") or "")
+            for index, file_entry in enumerate(files):
                 if not isinstance(file_entry, dict):
                     continue
-                source_id = str(file_entry.get("id") or entry.get("id") or "")
+                file_id = file_entry.get("id")
+                if file_id:
+                    source_id = str(file_id)
+                elif len(files) > 1:
+                    # Multi-file installer entries (e.g. an .exe + .bin pair) don't
+                    # always carry a per-file id; without a suffix every file in the
+                    # entry would fall back to the same entry_id and collide on the
+                    # same destination path / manifest file_id.
+                    source_id = f"{entry_id or role}#{index}"
+                else:
+                    source_id = entry_id
                 downlink_url = str(file_entry.get("downlink") or "")
                 if not source_id or not downlink_url:
                     continue
@@ -288,12 +292,14 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
 
 def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
     game_selectors = _game_selectors_from_args(args)
+    interactive = not args.no_interactive and is_interactive()
     if args.all_games or game_selectors:
         selected = select_games(
             library,
             game_selectors=game_selectors,
             exclude=args.exclude,
             all_games=args.all_games,
+            interactive=interactive,
         )
     else:
         if args.no_interactive or not is_interactive():
@@ -314,6 +320,7 @@ def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> li
 
 def _game_selectors_from_args(args: argparse.Namespace) -> list[str]:
     selectors = list(getattr(args, "games", []) or [])
+    selectors.extend(getattr(args, "selectors", []) or [])
     for path in getattr(args, "games_from", []) or []:
         selectors.extend(_read_game_selector_file(Path(path)))
     return selectors
@@ -393,6 +400,7 @@ def _execute_files(
         expected_md5, expected_size = _resolve_checksum(session, checksum_url, planned.spec)
         planned.spec.expected_md5 = expected_md5
         planned.spec.expected_size = expected_size
+        strict_size = not (planned.spec.role in _LENIENT_SIZE_ROLES and expected_md5 is None)
         result = _download(
             context.downloader,
             signed_url,
@@ -401,6 +409,7 @@ def _execute_files(
             expected_md5,
             context.aria2c_policy,
             downloader,
+            strict_size=strict_size,
         )
         signed_url = ""
         results.append(_record_and_report(context, command, game, planned, result))
@@ -429,19 +438,22 @@ def _verify_existing(planned: PlannedFile) -> DownloadResult:
             failure_code="missing_file",
             failure_message="Expected file is missing",
         )
-    if (
-        planned.spec.expected_size is not None
-        and planned.dest.stat().st_size != planned.spec.expected_size
-    ):
-        return DownloadResult(
-            status="failed",
-            path=planned.dest,
-            expected_size=planned.spec.expected_size,
-            failure_code="size_mismatch",
-            failure_message=(
-                f"Expected {planned.spec.expected_size} bytes, got {planned.dest.stat().st_size}"
-            ),
+    actual_size = planned.dest.stat().st_size
+    if planned.spec.expected_size is not None and actual_size != planned.spec.expected_size:
+        strict_size = not (
+            planned.spec.role in _LENIENT_SIZE_ROLES and planned.spec.expected_md5 is None
         )
+        if strict_size:
+            return DownloadResult(
+                status="failed",
+                path=planned.dest,
+                expected_size=planned.spec.expected_size,
+                failure_code="size_mismatch",
+                failure_message=(
+                    f"Expected {planned.spec.expected_size} bytes, got {actual_size}"
+                ),
+            )
+        planned.spec.expected_size = actual_size
     if (
         planned.spec.expected_md5 is not None
         and _md5_file(planned.dest) != planned.spec.expected_md5.lower()
@@ -462,6 +474,12 @@ def _verify_existing(planned: PlannedFile) -> DownloadResult:
     )
 
 
+# Bonus content roles whose declared size in GOG's static metadata is not always
+# byte-accurate. Without a real checksum to cross-check, a size mismatch alone isn't
+# a reliable enough signal to hard-fail an otherwise-successful download.
+_LENIENT_SIZE_ROLES = {"extra", "manual"}
+
+
 def _download(
     downloader_name: str,
     signed_url: str,
@@ -470,6 +488,8 @@ def _download(
     expected_md5: str | None,
     aria2c_policy: str,
     downloader: Downloader,
+    *,
+    strict_size: bool = True,
 ) -> DownloadResult:
     if downloader_name == "aria2c":
         return download_via_aria2c(
@@ -478,12 +498,14 @@ def _download(
             expected_size=expected_size,
             expected_md5=expected_md5,
             aria2c_policy=aria2c_policy,
+            strict_size=strict_size,
         )
     return downloader.download(
         signed_url,
         dest,
         expected_size=expected_size,
         expected_md5=expected_md5,
+        strict_size=strict_size,
     )
 
 

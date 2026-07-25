@@ -14,7 +14,7 @@ def test_defaults(tmp_path: Path) -> None:
     config = load_config(paths, env={})
 
     assert config.destination is None
-    assert config.downloader == "direct"
+    assert config.downloader is None
     assert config.aria2c_policy == "auto"
     assert config.platforms == []
     assert config.languages == []
@@ -66,7 +66,7 @@ def test_missing_config_file_uses_defaults(tmp_path: Path) -> None:
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     config = load_config(paths, env={})
 
-    assert config.downloader == "direct"
+    assert config.downloader is None
     assert config.output_format == "human"
 
 

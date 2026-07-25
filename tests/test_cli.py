@@ -4,6 +4,7 @@ import io
 import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import responses as rsps_lib
@@ -60,7 +61,7 @@ def test_list_purchased_human(
         ],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr()
     assert "Witcher 3" in out.out
     assert "Cyberpunk 2077" in out.out
@@ -71,6 +72,139 @@ def test_list_purchased_human(
     assert "Role-playing" in out.out
     assert "2 games. Cache age:" in out.out
     assert out.err == ""
+
+
+def test_list_bare_defaults_to_purchased(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+
+    assert main(["list"]) == 0
+    assert "Witcher 3" in capsys.readouterr().out
+
+
+def test_list_positional_query_is_search_shorthand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+            {
+                "product_id": 2222,
+                "title": "Cyberpunk 2077",
+                "slug": "cyberpunk_2077",
+                "platforms": [],
+            },
+        ],
+    )
+
+    assert main(["list", "witcher"]) == 0
+    out = capsys.readouterr().out
+    assert "Witcher 3" in out
+    assert "Cyberpunk 2077" not in out
+
+
+def test_list_positional_query_combines_with_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {
+                "product_id": 1111,
+                "title": "Witcher 3",
+                "slug": "witcher_3",
+                "platforms": ["windows"],
+            },
+            {"product_id": 2222, "title": "Witcher 2", "slug": "witcher_2", "platforms": ["linux"]},
+        ],
+    )
+
+    assert main(["list", "witcher", "--platform", "linux", "--format", "json"]) == 0
+    parsed = json.loads(capsys.readouterr().out)
+    assert [g["title"] for g in parsed["data"]] == ["Witcher 2"]
+
+
+def test_list_bare_word_backup_is_search_text_not_subcommand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A game literally titled "Backup" must not be shadowed by the `list backup`
+    # subcommand; only --backup/--back should route there.
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Backup", "slug": "backup", "platforms": []},
+            {"product_id": 2222, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+        ],
+    )
+
+    assert main(["list", "backup"]) == 0
+    out = capsys.readouterr().out
+    assert "Backup" in out
+    assert "Witcher 3" not in out
+
+
+def test_list_bare_word_purchased_is_search_text_not_reserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A game literally titled "Purchased" must not be shadowed either. Unlike
+    # "backup", "purchased" needs no dedicated flag at all: bare `gog list`
+    # already means the full purchased listing, so the word is always free.
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Purchased", "slug": "purchased", "platforms": []},
+            {"product_id": 2222, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+        ],
+    )
+
+    assert main(["list", "purchased"]) == 0
+    out = capsys.readouterr().out
+    assert "Purchased" in out
+    assert "Witcher 3" not in out
+
+
+def test_list_backup_flag_lists_backed_up_games(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_manifest(
+        destination,
+        [
+            {
+                "product_id": 1111,
+                "title": "Witcher 3",
+                "directory": "witcher_3",
+                "status": "current",
+                "files": [],
+            }
+        ],
+    )
+
+    assert main(["list", "--backup", "--destination", str(destination)]) == 0
+    assert "Witcher 3" in capsys.readouterr().out
+    assert main(["list", "--back", "--destination", str(destination)]) == 0
+    assert "Witcher 3" in capsys.readouterr().out
 
 
 def test_list_purchased_format_json(
@@ -86,7 +220,7 @@ def test_list_purchased_format_json(
         ],
     )
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["command"] == "list purchased"
     assert parsed["data"][0]["product_id"] == 1111
@@ -115,7 +249,7 @@ def test_list_purchased_enriches_platforms_from_download_cache(
         ],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     # W and L columns should show sizes (8 B total from two 4-byte installers)
     assert "8 B" in out   # Total = windows 4 B + linux 4 B
@@ -139,12 +273,12 @@ def test_list_purchased_keeps_download_installable_in_json_only(
         is_installable=True,
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "2015" in out
     assert "Install" not in out
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["data"][0]["is_installable"] is True
 
@@ -166,7 +300,7 @@ def test_list_purchased_ignores_implausible_download_year_fallback(
         release_date="1991-12-25T00:00:00+0200",
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "1991" not in out
     assert "Witcher 2" in out
@@ -212,7 +346,6 @@ def test_list_purchased_filters_platform_year_and_genre(
         main(
             [
                 "list",
-                "purchased",
                 "--platform",
                 "windows",
                 "--year",
@@ -258,7 +391,7 @@ def test_list_purchased_year_open_ranges_and_comma_genres(
         ],
     )
 
-    assert main(["list", "purchased", "--year", "..2000", "--genre", "arcade,rts"]) == 0
+    assert main(["list", "--year", "..2000", "--genre", "arcade,rts"]) == 0
     out = capsys.readouterr().out
     assert "Arcade Oldie" in out
     assert "Modern RTS" not in out
@@ -283,7 +416,7 @@ def test_list_purchased_genre_filter_omits_unknown_genres_by_default(
         ],
     )
 
-    assert main(["list", "purchased", "--genre", "strategy"]) == 0
+    assert main(["list", "--genre", "strategy"]) == 0
     out = capsys.readouterr().out
     assert "Known Strategy" in out
     assert "Unknown Genre" not in out
@@ -312,7 +445,6 @@ def test_list_purchased_genre_filter_can_include_unknown_genres(
         main(
             [
                 "list",
-                "purchased",
                 "--genre",
                 "strategy",
                 "--include-unknown-genre",
@@ -341,7 +473,7 @@ def test_list_purchased_fuzzy_search_ranks_exact_before_fuzzy(
         ],
     )
 
-    assert main(["list", "purchased", "--search", "witcher"]) == 0
+    assert main(["list", "--search", "witcher"]) == 0
     lines = capsys.readouterr().out.splitlines()
     game_lines = [line for line in lines if "Witch" in line]
     assert game_lines[0].find("The Witcher 3") > -1
@@ -360,7 +492,7 @@ def test_list_purchased_empty_result(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": ["windows"]}],
     )
 
-    assert main(["list", "purchased", "--platform", "linux"]) == 0
+    assert main(["list", "--platform", "linux"]) == 0
     assert "0 games." in capsys.readouterr().out
 
 
@@ -378,7 +510,7 @@ def test_list_purchased_year_filter_omits_unknown_years(
         ],
     )
 
-    assert main(["list", "purchased", "--year", "2000..2002"]) == 0
+    assert main(["list", "--year", "2000..2002"]) == 0
     out = capsys.readouterr().out
     assert "Known" in out
     assert "Unknown" not in out
@@ -402,7 +534,6 @@ def test_list_purchased_year_filter_can_include_unknown_years(
         main(
             [
                 "list",
-                "purchased",
                 "--year",
                 "2000..2002",
                 "--include-unknown-year",
@@ -426,7 +557,7 @@ def test_list_purchased_invalid_year_range_returns_usage(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3"}],
     )
 
-    assert main(["list", "purchased", "--year", "2020..1990"]) == 2
+    assert main(["list", "--year", "2020..1990"]) == 2
     assert "Year filter start" in capsys.readouterr().err
 
 
@@ -434,11 +565,13 @@ def test_list_purchased_help_includes_filter_examples(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
+        # any non-flag word reaches the purchased subparser's own --help;
+        # using the literal word here is incidental, not special-cased.
         main(["list", "purchased", "--help"])
 
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
-    assert "gog list purchased --search witcher" in out
+    assert "gog list witcher" in out
     assert "--include-unknown-genre" in out
 
 
@@ -470,7 +603,7 @@ def test_list_purchased_shows_size_columns(
         installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1 << 30)],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "W" in out
     assert "M" in out
@@ -494,7 +627,7 @@ def test_list_purchased_shows_dash_for_missing_sizes(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "W" in out
     assert out.count("-") >= 4
@@ -519,7 +652,7 @@ def test_list_purchased_size_fields_in_json(
         bonus_content=[_bonus_entry("art_book", size=1048576)],
     )
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     game = parsed["data"][0]
     assert game["installer_sizes"] == {"windows": 1073741824}
@@ -541,7 +674,7 @@ def test_list_purchased_sort_title(
         ],
     )
 
-    assert main(["list", "purchased", "--sort", "title"]) == 0
+    assert main(["list", "--sort", "title"]) == 0
     out = capsys.readouterr().out
     assert out.index("Arcanum") < out.index("Morrowind") < out.index("Zelda")
 
@@ -561,7 +694,7 @@ def test_list_purchased_sort_year(
         ],
     )
 
-    assert main(["list", "purchased", "--sort", "year"]) == 0
+    assert main(["list", "--sort", "year"]) == 0
     out = capsys.readouterr().out
     assert out.index("Old Game") < out.index("New Game") < out.index("No Year")
 
@@ -586,7 +719,7 @@ def test_list_purchased_sort_size(
         _sized_installer("b1", product_id=2222, os_name="windows", size=10737418240),
     ])
 
-    assert main(["list", "purchased", "--sort", "size"]) == 0
+    assert main(["list", "--sort", "size"]) == 0
     out = capsys.readouterr().out
     assert out.index("Big Game") < out.index("Small Game")
 
@@ -604,7 +737,7 @@ def test_list_backed_up_sort_title(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination), "--sort", "title"]) == 0
+    assert main(["list", "--backup", "--destination", str(destination), "--sort", "title"]) == 0
     out = capsys.readouterr().out
     assert out.index("Arcanum") < out.index("Zelda")
 
@@ -634,20 +767,23 @@ def test_list_backed_up_sort_size(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination), "--sort", "size"]) == 0
+    assert main(["list", "--backup", "--destination", str(destination), "--sort", "size"]) == 0
     out = capsys.readouterr().out
     assert out.index("Big Game") < out.index("Small Game")
 
 
-def test_list_backed_up_requires_destination(
+def test_list_backed_up_defaults_destination_to_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _set_home(monkeypatch, tmp_path)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
 
-    assert main(["list", "backup"]) == ExitCode.USAGE
-    assert "destination is required" in capsys.readouterr().err
+    assert main(["list", "--backup"]) == ExitCode.FAILURE
+    assert "Run `gog backup`" in capsys.readouterr().err
 
 
 def test_list_backed_up_human(
@@ -681,7 +817,7 @@ def test_list_backed_up_human(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination)]) == 0
+    assert main(["list", "--backup", "--destination", str(destination)]) == 0
     out = capsys.readouterr()
     assert "Witcher 3" in out.out
     assert "Cyberpunk 2077" in out.out
@@ -718,7 +854,7 @@ def test_list_backed_up_shows_total_size(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination)]) == 0
+    assert main(["list", "--backup", "--destination", str(destination)]) == 0
     out = capsys.readouterr().out
     assert "1.0 GB" in out
     assert "-" in out
@@ -742,7 +878,7 @@ def test_list_backed_up_size_in_json(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination), "--format", "json"]) == 0
+    assert main(["list", "--backup", "--destination", str(destination), "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["data"][0]["total_size_bytes"] == 1073741824
 
@@ -765,7 +901,7 @@ def test_list_backed_up_format_json(
         ],
     )
 
-    assert main(["list", "backup", "--destination", str(destination), "--format", "json"]) == 0
+    assert main(["list", "--backup", "--destination", str(destination), "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["command"] == "list backup"
     assert parsed["data"][0]["status"] == "current"
@@ -777,7 +913,7 @@ def test_list_backed_up_missing_manifest(
 ) -> None:
     destination = tmp_path / "backups"
 
-    assert main(["list", "backup", "--destination", str(destination)]) == 1
+    assert main(["list", "--backup", "--destination", str(destination)]) == 1
     assert "Run `gog backup`" in capsys.readouterr().err
 
 
@@ -788,7 +924,7 @@ def test_list_backed_up_unsupported_schema(
     destination = tmp_path / "backups"
     _seed_manifest(destination, [], schema_version=2)
 
-    assert main(["list", "backup", "--destination", str(destination)]) == 7
+    assert main(["list", "--backup", "--destination", str(destination)]) == 7
     assert "unsupported manifest schema" in capsys.readouterr().err
 
 
@@ -803,15 +939,18 @@ def test_backup_dry_run(
     assert "Backup plan" in capsys.readouterr().out
 
 
-def test_backup_dry_run_no_destination(
+def test_backup_dry_run_defaults_destination_to_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _set_home(monkeypatch, tmp_path)
+    _seed_backup_state(tmp_path, monkeypatch)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
 
-    assert main(["backup", "--dry-run"]) == 2
-    assert "destination is required" in capsys.readouterr().err
+    assert main(["backup", "--dry-run", "--all"]) == 0
+    assert f"Backup plan — {cwd}" in capsys.readouterr().out
 
 
 def test_backup_missing_cache(
@@ -852,6 +991,107 @@ def test_backup_selector_flags_parse(
         )
         == 0
     )
+
+
+def test_plan_platform_and_role_shortcut_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        1111,
+        installers=[_download_entry("setup_witcher", product_id=1111)],
+        bonus_content=[_bonus_entry("art_book", size=4)],
+    )
+
+    assert main(["plan", "witcher_3", "--win", "--extras"]) == 0
+    out = capsys.readouterr().out
+    assert "+  art_book" in out
+    assert "-  setup_witcher" in out
+
+
+def test_backup_positional_selector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(
+            [
+                "dl",
+                "cyberpunk_2077",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--yes",
+            ]
+        )
+        == 0
+    )
+    assert "Cyberpunk 2077" in capsys.readouterr().out
+
+
+def test_backup_positional_selector_fuzzy_match(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    assert (
+        main(
+            [
+                "dl",
+                "cyberpunk",  # partial title, not an exact slug/id match
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--yes",
+            ]
+        )
+        == 0
+    )
+    assert "Cyberpunk 2077" in capsys.readouterr().out
+
+
+def test_backup_positional_selector_ambiguous_fuzzy_match_fails_non_interactive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Witcher 2", "slug": "witcher_2", "platforms": []},
+            {"product_id": 2222, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+        ],
+    )
+    _seed_download_cache(tmp_path, 1111, [_download_entry("setup_witcher2", product_id=1111)])
+    _seed_download_cache(tmp_path, 2222, [_download_entry("setup_witcher3", product_id=2222)])
+
+    exit_code = main(
+        [
+            "dl",
+            "witcher",
+            "--destination",
+            str(tmp_path / "backups"),
+            "--dry-run",
+            "--yes",
+            "--no-interactive",
+        ]
+    )
+
+    assert exit_code != 0
+    assert "matches multiple games" in capsys.readouterr().err
 
 
 def test_backup_selected_game_does_not_require_unselected_download_cache(
@@ -1022,7 +1262,14 @@ def test_sync_selector_flags_parse(
     )
 
 
-def test_no_interactive_flag_parses(capsys: pytest.CaptureFixture[str]) -> None:
+def test_no_interactive_flag_parses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(tmp_path, [])
+
     assert main(["backup", "--dry-run", "--no-interactive", "--game", "witcher-3"]) == 2
 
 
@@ -1061,6 +1308,43 @@ def test_backup_all_yes_downloads_and_writes_manifest(
     assert manifest["backup_root_marker"].startswith("gog-cli-backup:")
     assert "checksum" in manifest["games"][0]["files"][0]
     assert "https://cdn.gog.com" not in BackupLayout(destination).manifest_file.read_text()
+
+
+@rsps_lib.activate
+def test_backup_auto_selects_aria2c_when_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    rsps_lib.add(
+        rsps_lib.GET,
+        "https://api.gog.com/products/1111/downlink/installer/setup_witcher",
+        json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": ""},
+    )
+    rsps_lib.add(
+        rsps_lib.GET,
+        "https://api.gog.com/products/2222/downlink/installer/setup_cyberpunk",
+        json={"downlink": "https://cdn.gog.com/setup2.exe?token=secret", "checksum": ""},
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001
+        dest = Path(cmd[cmd.index("--dir") + 1]) / cmd[cmd.index("--out") + 1]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"data")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/aria2c"),
+        patch("subprocess.run", side_effect=fake_run) as mock_run,
+    ):
+        # No --downloader flag: should auto-select aria2c since it's "installed".
+        assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+
+    assert mock_run.called
+    backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    assert backed_up.read_bytes() == b"data"
 
 
 @rsps_lib.activate
@@ -1115,6 +1399,82 @@ def test_backup_falls_back_to_header_filename(
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
     assert (destination / "games" / "witcher_3" / "installers" / "setup_from_header.exe").exists()
+
+
+@rsps_lib.activate
+def test_backup_multi_file_installer_without_file_ids_downloads_all_parts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Some multi-file installer entries (e.g. an .exe + .bin pair) only carry an id
+    # at the entry level, not per file. Combined with a Content-Disposition lookup
+    # that yields nothing, every part must still land on its own destination path.
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    entry = {
+        "id": "installer_witcher",
+        "os": "windows",
+        "language": "en",
+        "version": "1.0",
+        "files": [
+            {"size": 4, "downlink": "https://api.gog.com/products/1111/downlink/installer/part1"},
+            {"size": 4, "downlink": "https://api.gog.com/products/1111/downlink/installer/part2"},
+        ],
+    }
+    _seed_download_cache(tmp_path, 1111, [entry])
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/part1")
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/part2")
+
+    assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+
+    installers_dir = destination / "games" / "witcher_3" / "installers"
+    assert {p.name for p in installers_dir.iterdir()} == {
+        "installer_witcher#0",
+        "installer_witcher#1",
+    }
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    files = manifest["games"][0]["files"]
+    assert len(files) == 2
+    assert {f["file_id"] for f in files} == {
+        "installer:windows:en:installer_witcher#0",
+        "installer:windows:en:installer_witcher#1",
+    }
+    assert all(f["status"] == "verified" for f in files)
+
+
+@rsps_lib.activate
+def test_backup_bonus_content_size_mismatch_without_checksum_is_accepted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # GOG's declared size for bonus content is sometimes a slightly-off estimate.
+    # Without a real checksum to cross-check, that alone shouldn't fail the backup.
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        1111,
+        installers=[],
+        bonus_content=[_bonus_entry("guide", size=999)],
+    )
+    _mock_download("https://api.gog.com/products/1111/downlink/bonus/guide")
+
+    assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    file_record = manifest["games"][0]["files"][0]
+    assert file_record["status"] == "verified"
+    assert file_record["expected_size"] == len(b"data")
 
 
 def test_backup_adopts_existing_file(
@@ -1244,7 +1604,7 @@ def test_full_refresh_backup_list_backed_up_workflow(
 
     assert main(["refresh"]) == 0
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
-    assert main(["list", "backup", "--destination", str(destination)]) == 0
+    assert main(["list", "--backup", "--destination", str(destination)]) == 0
 
     output = capsys.readouterr().out
     assert "Witcher 3" in output
@@ -1259,7 +1619,7 @@ def test_list_purchased_missing_cache(
 ) -> None:
     _set_home(monkeypatch, tmp_path)
 
-    assert main(["list", "purchased"]) == 1
+    assert main(["list"]) == 1
     assert "Run `gog refresh`" in capsys.readouterr().err
 
 
@@ -1275,7 +1635,7 @@ def test_list_purchased_stale_cache_warns(
         fetched_at="2026-06-20T10:00:00Z",
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     assert "older than 24h" in capsys.readouterr().err
 
 
@@ -2023,7 +2383,7 @@ def test_top_level_help_includes_common_workflow_examples(
 ) -> None:
     out = _help_text([], capsys)
 
-    assert "{auth,refresh,list,search,plan,backup,sync}" in out
+    assert "{auth,refresh,list,search,plan,backup,download,dl,sync}" in out
     assert "gog auth login" in out
     assert "gog plan --destination /backups/gog --all --storage" in out
     assert "gog backup --destination /backups/gog --games-from games.txt" in out
@@ -2037,9 +2397,9 @@ def test_top_level_help_includes_common_workflow_examples(
         (["auth", "status"], "gog auth status"),
         (["auth", "logout"], "gog auth logout"),
         (["refresh"], "gog refresh --force"),
-        (["list"], "gog list backup --destination /backups/gog"),
-        (["list", "purchased"], "gog list purchased --search witcher"),
-        (["list", "backup"], "gog list backup --destination /backups/gog --format json"),
+        (["list"], "gog list --backup --destination /backups/gog"),
+        (["list", "purchased"], "gog list witcher"),
+        (["list", "--backup"], "gog list --back --destination /backups/gog --format json"),
         (["search"], "gog search rpg --genre"),
         (["plan"], "gog plan --destination /backups/gog --games-from games.txt --summary"),
         (["backup"], "gog backup --destination /backups/gog --games-from games.txt"),

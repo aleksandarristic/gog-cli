@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, datetime, timedelta
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +12,7 @@ from gog_cli.api import search_catalog
 from gog_cli.backup import BackupLayout
 from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, UsageError
+from gog_cli.fuzzy import title_search_score
 from gog_cli.metadata import (
     extract_download_summary,
     extract_size_summary,
@@ -132,11 +132,7 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
 def handle_list_backed_up(args: argparse.Namespace) -> int:
     paths = resolve_app_paths()
     config = load_config(paths)
-    destination = getattr(args, "destination", None) or config.destination
-    if destination is None:
-        raise UsageError(
-            "Backup destination is required. Use --destination or set it in config."
-        )
+    destination = getattr(args, "destination", None) or config.destination or Path.cwd()
     layout = BackupLayout(Path(destination).expanduser())
     try:
         manifest = _load_manifest(layout.manifest_file)
@@ -265,7 +261,7 @@ def _apply_purchased_filters(
     scored = [
         (score, game)
         for game in filtered
-        if (score := _title_search_score(search, game)) > 0
+        if (score := title_search_score(search, game)) > 0
     ]
     scored.sort(
         key=lambda item: (
@@ -358,46 +354,6 @@ def _matches_genres(
     if not game_genres:
         return include_unknown
     return any(genre in game_genres for genre in genres)
-
-
-def _title_search_score(query: str, game: dict[str, Any]) -> int:
-    normalized_query = _search_key(query)
-    if not normalized_query:
-        return 0
-
-    title = _search_key(game.get("title", ""))
-    slug = _search_key(str(game.get("slug", "")).replace("_", " ").replace("-", " "))
-    candidates = [candidate for candidate in (title, slug) if candidate]
-    if not candidates:
-        return 0
-
-    scores: list[int] = []
-    for candidate in candidates:
-        if candidate == normalized_query:
-            scores.append(1000)
-        elif candidate.startswith(normalized_query):
-            scores.append(900 - min(len(candidate) - len(normalized_query), 100))
-        elif normalized_query in candidate:
-            scores.append(800 - min(candidate.index(normalized_query), 100))
-        else:
-            ratio = _best_fuzzy_ratio(normalized_query, candidate)
-            if ratio >= 0.78:
-                scores.append(int(ratio * 700))
-    return max(scores, default=0)
-
-
-def _search_key(value: Any) -> str:
-    return " ".join(str(value).casefold().split())
-
-
-def _best_fuzzy_ratio(query: str, candidate: str) -> float:
-    choices = [candidate, *candidate.split()]
-    words = candidate.split()
-    if len(words) > 1:
-        choices.extend(
-            f"{left} {right}" for left, right in zip(words, words[1:], strict=False)
-        )
-    return max(SequenceMatcher(None, query, choice).ratio() for choice in choices)
 
 
 def _sort_purchased(games: list[dict[str, Any]], key: str | None) -> list[dict[str, Any]]:
