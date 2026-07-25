@@ -61,7 +61,7 @@ def test_list_purchased_human(
         ],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr()
     assert "Witcher 3" in out.out
     assert "Cyberpunk 2077" in out.out
@@ -160,6 +160,29 @@ def test_list_bare_word_backup_is_search_text_not_subcommand(
     assert "Witcher 3" not in out
 
 
+def test_list_bare_word_purchased_is_search_text_not_reserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A game literally titled "Purchased" must not be shadowed either. Unlike
+    # "backup", "purchased" needs no dedicated flag at all: bare `gog list`
+    # already means the full purchased listing, so the word is always free.
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [
+            {"product_id": 1111, "title": "Purchased", "slug": "purchased", "platforms": []},
+            {"product_id": 2222, "title": "Witcher 3", "slug": "witcher_3", "platforms": []},
+        ],
+    )
+
+    assert main(["list", "purchased"]) == 0
+    out = capsys.readouterr().out
+    assert "Purchased" in out
+    assert "Witcher 3" not in out
+
+
 def test_list_backup_flag_lists_backed_up_games(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -197,7 +220,7 @@ def test_list_purchased_format_json(
         ],
     )
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["command"] == "list purchased"
     assert parsed["data"][0]["product_id"] == 1111
@@ -226,7 +249,7 @@ def test_list_purchased_enriches_platforms_from_download_cache(
         ],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     # W and L columns should show sizes (8 B total from two 4-byte installers)
     assert "8 B" in out   # Total = windows 4 B + linux 4 B
@@ -250,12 +273,12 @@ def test_list_purchased_keeps_download_installable_in_json_only(
         is_installable=True,
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "2015" in out
     assert "Install" not in out
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     assert parsed["data"][0]["is_installable"] is True
 
@@ -277,7 +300,7 @@ def test_list_purchased_ignores_implausible_download_year_fallback(
         release_date="1991-12-25T00:00:00+0200",
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "1991" not in out
     assert "Witcher 2" in out
@@ -323,7 +346,6 @@ def test_list_purchased_filters_platform_year_and_genre(
         main(
             [
                 "list",
-                "purchased",
                 "--platform",
                 "windows",
                 "--year",
@@ -369,7 +391,7 @@ def test_list_purchased_year_open_ranges_and_comma_genres(
         ],
     )
 
-    assert main(["list", "purchased", "--year", "..2000", "--genre", "arcade,rts"]) == 0
+    assert main(["list", "--year", "..2000", "--genre", "arcade,rts"]) == 0
     out = capsys.readouterr().out
     assert "Arcade Oldie" in out
     assert "Modern RTS" not in out
@@ -394,7 +416,7 @@ def test_list_purchased_genre_filter_omits_unknown_genres_by_default(
         ],
     )
 
-    assert main(["list", "purchased", "--genre", "strategy"]) == 0
+    assert main(["list", "--genre", "strategy"]) == 0
     out = capsys.readouterr().out
     assert "Known Strategy" in out
     assert "Unknown Genre" not in out
@@ -423,7 +445,6 @@ def test_list_purchased_genre_filter_can_include_unknown_genres(
         main(
             [
                 "list",
-                "purchased",
                 "--genre",
                 "strategy",
                 "--include-unknown-genre",
@@ -452,7 +473,7 @@ def test_list_purchased_fuzzy_search_ranks_exact_before_fuzzy(
         ],
     )
 
-    assert main(["list", "purchased", "--search", "witcher"]) == 0
+    assert main(["list", "--search", "witcher"]) == 0
     lines = capsys.readouterr().out.splitlines()
     game_lines = [line for line in lines if "Witch" in line]
     assert game_lines[0].find("The Witcher 3") > -1
@@ -471,7 +492,7 @@ def test_list_purchased_empty_result(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": ["windows"]}],
     )
 
-    assert main(["list", "purchased", "--platform", "linux"]) == 0
+    assert main(["list", "--platform", "linux"]) == 0
     assert "0 games." in capsys.readouterr().out
 
 
@@ -489,7 +510,7 @@ def test_list_purchased_year_filter_omits_unknown_years(
         ],
     )
 
-    assert main(["list", "purchased", "--year", "2000..2002"]) == 0
+    assert main(["list", "--year", "2000..2002"]) == 0
     out = capsys.readouterr().out
     assert "Known" in out
     assert "Unknown" not in out
@@ -513,7 +534,6 @@ def test_list_purchased_year_filter_can_include_unknown_years(
         main(
             [
                 "list",
-                "purchased",
                 "--year",
                 "2000..2002",
                 "--include-unknown-year",
@@ -537,7 +557,7 @@ def test_list_purchased_invalid_year_range_returns_usage(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3"}],
     )
 
-    assert main(["list", "purchased", "--year", "2020..1990"]) == 2
+    assert main(["list", "--year", "2020..1990"]) == 2
     assert "Year filter start" in capsys.readouterr().err
 
 
@@ -545,11 +565,13 @@ def test_list_purchased_help_includes_filter_examples(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
+        # any non-flag word reaches the purchased subparser's own --help;
+        # using the literal word here is incidental, not special-cased.
         main(["list", "purchased", "--help"])
 
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
-    assert "gog list purchased --search witcher" in out
+    assert "gog list witcher" in out
     assert "--include-unknown-genre" in out
 
 
@@ -581,7 +603,7 @@ def test_list_purchased_shows_size_columns(
         installers=[_sized_installer("setup_lin", product_id=2222, os_name="linux", size=1 << 30)],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "W" in out
     assert "M" in out
@@ -605,7 +627,7 @@ def test_list_purchased_shows_dash_for_missing_sizes(
         [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "W" in out
     assert out.count("-") >= 4
@@ -630,7 +652,7 @@ def test_list_purchased_size_fields_in_json(
         bonus_content=[_bonus_entry("art_book", size=1048576)],
     )
 
-    assert main(["list", "purchased", "--format", "json"]) == 0
+    assert main(["list", "--format", "json"]) == 0
     parsed = json.loads(capsys.readouterr().out)
     game = parsed["data"][0]
     assert game["installer_sizes"] == {"windows": 1073741824}
@@ -652,7 +674,7 @@ def test_list_purchased_sort_title(
         ],
     )
 
-    assert main(["list", "purchased", "--sort", "title"]) == 0
+    assert main(["list", "--sort", "title"]) == 0
     out = capsys.readouterr().out
     assert out.index("Arcanum") < out.index("Morrowind") < out.index("Zelda")
 
@@ -672,7 +694,7 @@ def test_list_purchased_sort_year(
         ],
     )
 
-    assert main(["list", "purchased", "--sort", "year"]) == 0
+    assert main(["list", "--sort", "year"]) == 0
     out = capsys.readouterr().out
     assert out.index("Old Game") < out.index("New Game") < out.index("No Year")
 
@@ -697,7 +719,7 @@ def test_list_purchased_sort_size(
         _sized_installer("b1", product_id=2222, os_name="windows", size=10737418240),
     ])
 
-    assert main(["list", "purchased", "--sort", "size"]) == 0
+    assert main(["list", "--sort", "size"]) == 0
     out = capsys.readouterr().out
     assert out.index("Big Game") < out.index("Small Game")
 
@@ -1597,7 +1619,7 @@ def test_list_purchased_missing_cache(
 ) -> None:
     _set_home(monkeypatch, tmp_path)
 
-    assert main(["list", "purchased"]) == 1
+    assert main(["list"]) == 1
     assert "Run `gog refresh`" in capsys.readouterr().err
 
 
@@ -1613,7 +1635,7 @@ def test_list_purchased_stale_cache_warns(
         fetched_at="2026-06-20T10:00:00Z",
     )
 
-    assert main(["list", "purchased"]) == 0
+    assert main(["list"]) == 0
     assert "older than 24h" in capsys.readouterr().err
 
 
@@ -2376,7 +2398,7 @@ def test_top_level_help_includes_common_workflow_examples(
         (["auth", "logout"], "gog auth logout"),
         (["refresh"], "gog refresh --force"),
         (["list"], "gog list --backup --destination /backups/gog"),
-        (["list", "purchased"], "gog list purchased --search witcher"),
+        (["list", "purchased"], "gog list witcher"),
         (["list", "--backup"], "gog list --back --destination /backups/gog --format json"),
         (["search"], "gog search rpg --genre"),
         (["plan"], "gog plan --destination /backups/gog --games-from games.txt --summary"),

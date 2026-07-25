@@ -208,11 +208,15 @@ error.
 ### gog list purchased
 
 ```
-gog list purchased [filters] [--sort COLUMN] [--format {human,json}]
+gog list [TEXT] [filters] [--sort COLUMN] [--format {human,json}]
 ```
 
 Lists owned games from the local cache written by `gog refresh`. Does not
-contact GOG.
+contact GOG. `gog list` alone lists everything; `gog list TEXT` is shorthand
+for a fuzzy title search (equivalent to `--search TEXT`). Neither `purchased`
+nor `backup` is a reserved word — a game actually titled either one is never
+shadowed by a subcommand name. `gog list --backup`/`--back` lists the backup
+manifest instead (see [gog list backup](#gog-list-backup)).
 
 Human output includes: product ID, title, release year, genre/category,
 per-platform size columns (Windows / Mac / Linux), extras size, and total size.
@@ -247,18 +251,18 @@ Year filters exclude games with unknown release years by default. Pass
 **Examples:**
 
 ```sh
-gog list purchased
-gog list purchased --search witcher
-gog list purchased --search "baldurs gate"
-gog list purchased --platform linux
-gog list purchased --platform windows --platform linux
-gog list purchased --year 1998..2005
-gog list purchased --year 2010.. --include-unknown-year
-gog list purchased --genre strategy
-gog list purchased --genre arcade,rts
-gog list purchased --genre rpg --include-unknown-genre
-gog list purchased --sort size
-gog list purchased --search witcher --platform linux --format json
+gog list
+gog list witcher
+gog list "baldurs gate"
+gog list --platform linux
+gog list --platform windows --platform linux
+gog list --year 1998..2005
+gog list --year 2010.. --include-unknown-year
+gog list --genre strategy
+gog list --genre arcade,rts
+gog list --genre rpg --include-unknown-genre
+gog list --sort size
+gog list witcher --platform linux --format json
 ```
 
 **Exit codes:** `0` on success, `1` if the library cache is missing (run `gog
@@ -269,11 +273,14 @@ refresh`), `7` if the cache is corrupt.
 ### gog list backup
 
 ```
-gog list backup [--destination PATH] [--sort COLUMN] [--format {human,json}]
+gog list --backup [--destination PATH] [--sort COLUMN] [--format {human,json}]
 ```
 
 Reads the backup manifest at a destination directory and summarizes the games
 and files recorded there. Does not contact GOG or read actual downloaded files.
+`--back` is an accepted alias for `--backup`. This is a flag, not a reserved
+positional keyword, so a game actually titled "backup" is never shadowed —
+`gog list backup` (no dashes) is a title search, same as any other selector.
 
 Human output columns: title, slug, status, file count, total size.
 JSON output returns the full manifest game array.
@@ -300,9 +307,9 @@ JSON output returns the full manifest game array.
 **Examples:**
 
 ```sh
-gog list backup --destination /backups/gog
-gog list backup --destination /backups/gog --sort size
-gog list backup --destination /backups/gog --format json
+gog list --backup --destination /backups/gog
+gog list --backup --destination /backups/gog --sort size
+gog list --back --destination /backups/gog --format json
 ```
 
 **Exit codes:** `0` on success, `6` if the manifest is missing, `7` if the
@@ -317,7 +324,8 @@ gog search QUERY [--platform PLATFORM] [--year RANGE] [--genre GENRE] [--format 
 ```
 
 Searches the public GOG catalog. Results are public catalog entries and are not
-filtered by ownership. Use `gog list purchased` for owned-library data.
+filtered by ownership (each result includes an `owned` field). Use `gog list`
+for owned-library data.
 
 **Arguments:**
 
@@ -331,7 +339,7 @@ filtered by ownership. Use `gog list purchased` for owned-library data.
 |------|-------|-------------|
 | `--format` | `-f` | `human` (default) or `json` |
 | `--platform PLATFORM` | `-p` | Filter by platform. Repeatable. |
-| `--year RANGE` | `-y` | Filter by release year range (same syntax as `list purchased`). |
+| `--year RANGE` | `-y` | Filter by release year range (same syntax as `gog list`). |
 | `--genre GENRE` | `-G` | Filter by genre/category/tag. Repeatable. |
 
 **Examples:**
@@ -665,37 +673,54 @@ gog sync --destination /backups/gog --all --downloader aria2c --dry-run
 
 ## Game Selectors
 
-The `plan`, `backup`, and `sync` commands share a common set of game selection
-flags. Selectors are matched against the local library cache written by
-`gog refresh`.
+The `plan`, `backup`/`download`/`dl`, and `sync` commands share a common set of
+game selection flags, plus a positional `GAME` argument. Selectors are matched
+against the local library cache written by `gog refresh`.
 
 ### Selection flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
+| `GAME` | | Positional selector: product ID, slug, or title (fuzzy-matched). Repeatable. |
 | `--all` | `-a` | Select all owned games. |
-| `--game SELECTOR` | `-g` | Select a game by product ID, slug, or exact title. Repeatable. |
+| `--game SELECTOR` | `-g` | Select a game by product ID, slug, or *exact* title only — no fuzzy fallback. Repeatable. |
 | `--games-from PATH` | `-F` | Read selectors from a UTF-8 text file, one per line. Repeatable. |
 | `--exclude SELECTOR` | `-x` | Exclude a game. Repeatable. Combinable with `--all`. |
 | `--platform PLATFORM` | `-p` | Restrict downloads to this platform (`windows`, `mac`, `linux`). Repeatable. |
+| `--win`/`--windows`, `--mac`, `--lin`/`--linux` | | Shortcuts for `--platform windows`/`mac`/`linux`. |
 | `--language LANG` | `-l` | Restrict downloads to this language code (e.g. `en`, `de`, `fr`). Repeatable. |
+| `--role ROLE` | `-r` | Restrict to this file role (`installer`, `patch`, `extra`, `language_pack`, `manual`). Repeatable. |
+| `--extras` | | Shortcut for `--role extra`. |
 
-`--all` and explicit selectors (`--game`, `--games-from`) are mutually
-exclusive. The `--exclude` flag is combinable with any selection method.
+`--all` and explicit selectors (positional `GAME`, `--game`, `--games-from`)
+are mutually exclusive. The `--exclude` flag is combinable with any selection
+method.
 
-When no selector flags are provided and the terminal is interactive, a numbered
+When no selector is given at all and the terminal is interactive, a numbered
 prompt is shown to select from the full library. Pass `--no-interactive` or set
 `interactive = false` in config to fail instead.
 
 ### Selector matching
 
-A selector is matched against a game in order:
+Both the positional `GAME` argument and `--game`/`-g` try, in order:
 
 1. Exact numeric product ID (e.g. `1207664663`)
 2. Exact slug match (e.g. `witcher_3`)
 3. Case-insensitive exact title match (e.g. `The Witcher 3: Wild Hunt`)
 
-If no game matches a selector, the command exits with a usage error.
+The positional `GAME` argument additionally falls back to fuzzy title matching
+when none of the above match exactly:
+
+- No fuzzy match → usage error.
+- Exactly one fuzzy match → used automatically.
+- Multiple fuzzy matches → a numbered prompt at an interactive terminal, or a
+  usage error listing the candidates when non-interactive (scripts, CI,
+  `--no-interactive`). Use an exact id/slug to sidestep ambiguity.
+
+`--game`/`-g` never falls back to fuzzy matching — it's exact-only, which is
+what you want for scripts and `games.txt` files where the match must be
+deterministic. If no game matches a `--game`/`-g` selector, the command exits
+with a usage error.
 
 ### Selector files
 
@@ -829,7 +854,7 @@ Exit codes are stable and suitable for use in scripts and CI pipelines.
 pip install gog-cli
 gog auth login           # authenticate with GOG
 gog refresh              # populate local library and download metadata caches
-gog list purchased       # verify the library is populated
+gog list                 # verify the library is populated
 ```
 
 ### Plan before a large backup
@@ -897,16 +922,16 @@ gog backup --destination /backups/gog --all --downloader aria2c --yes
 ### Inspect what's already backed up
 
 ```sh
-gog list backup --destination /backups/gog
-gog list backup --destination /backups/gog --sort size
-gog list backup --destination /backups/gog --format json | jq '.data[] | select(.status != "current")'
+gog list --backup --destination /backups/gog
+gog list --backup --destination /backups/gog --sort size
+gog list --backup --destination /backups/gog --format json | jq '.data[] | select(.status != "current")'
 ```
 
 ### Scripting with JSON output
 
 ```sh
 # Export the full purchased library as JSON
-gog list purchased --format json > library.json
+gog list --format json > library.json
 
 # Get the plan as JSON and check if space is sufficient
 gog plan --destination /backups/gog --all --format json \

@@ -73,7 +73,7 @@ See [docs/TODO.md](docs/TODO.md) for planned features and improvements.
 ```sh
 gog auth login
 gog refresh
-gog list purchased
+gog list
 gog plan --destination /path/to/backups --all --storage --check-free-space
 gog backup --destination /path/to/backups --all --yes
 gog list --backup --destination /path/to/backups
@@ -89,34 +89,31 @@ directory, so `cd` into a backup folder and drop it from every command.
 
 ## Browsing Purchased Games
 
-`gog list purchased` reads the local cache written by `gog refresh`; it does not
-contact GOG. Human output includes ID, title, release year, genre/category, and
+`gog list` reads the local cache written by `gog refresh`; it does not contact
+GOG. Human output includes ID, title, release year, genre/category, and
 platforms when those fields are available. JSON output also includes scriptable
 metadata such as `owned`, `release_date`, `genres`, and `is_installable`.
 
-`gog list` alone is shorthand for `gog list purchased`, and `gog list TEXT` is
-shorthand for `gog list purchased --search TEXT` — the explicit forms below
-still work and combine with any other flag. `gog list --backup`/`--back`
-(instead of a bare `backup` keyword) lists games recorded in a backup
-manifest, so a game actually titled that isn't shadowed by the flag.
+`gog list` alone lists everything; `gog list TEXT` fuzzy-searches by title.
+Neither `purchased` nor `backup` is a reserved word — a game actually titled
+either one is never shadowed. `gog list --backup`/`--back` lists games
+recorded in a backup manifest instead.
 
 Examples:
 
 ```sh
 gog list
+gog list --format json
 gog list witcher
-gog list purchased
-gog list purchased --format json
-gog list purchased --search witcher
-gog list purchased --search "baldurs gate"
-gog list purchased --platform windows
-gog list purchased --platform linux --search ftl
-gog list purchased --year 1998..2005
-gog list purchased --year 2010..2020 --include-unknown-year
-gog list purchased --genre strategy
-gog list purchased --genre arcade,rts
-gog list purchased --genre strategy --include-unknown-genre
-gog list purchased --search "baldurs gate" --platform linux --format json
+gog list "baldurs gate"
+gog list --platform windows
+gog list ftl --platform linux
+gog list --year 1998..2005
+gog list --year 2010..2020 --include-unknown-year
+gog list --genre strategy
+gog list --genre arcade,rts
+gog list --genre strategy --include-unknown-genre
+gog list "baldurs gate" --platform linux --format json
 ```
 
 Use `gog search TEXT` to search the public GOG catalog instead of your local

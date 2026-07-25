@@ -37,18 +37,18 @@ _REFRESH_EXAMPLES = """examples:
 _LIST_EXAMPLES = """examples:
   gog list
   gog list witcher
-  gog list purchased --search witcher --platform linux
+  gog list witcher --platform linux
   gog list --backup --destination /backups/gog
   gog list --back --destination /backups/gog --format json"""
 
 _LIST_PURCHASED_EXAMPLES = """examples:
-  gog list purchased --search witcher
-  gog list purchased --platform windows
-  gog list purchased --year 1998..2005
-  gog list purchased --year 2010..2020 --include-unknown-year
-  gog list purchased --genre strategy
-  gog list purchased --genre strategy --include-unknown-genre
-  gog list purchased --search "baldurs gate" --platform linux --format json"""
+  gog list witcher
+  gog list --platform windows
+  gog list --year 1998..2005
+  gog list --year 2010..2020 --include-unknown-year
+  gog list --genre strategy
+  gog list --genre strategy --include-unknown-genre
+  gog list "baldurs gate" --platform linux --format json"""
 
 _LIST_BACKUP_EXAMPLES = """examples:
   gog list --backup --destination /backups/gog
@@ -183,11 +183,11 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         "list",
         help="List games.",
         description=(
-            "List cached purchased games or games already recorded in a backup manifest. "
-            "`gog list` alone, or `gog list TEXT`, is shorthand for `gog list purchased` "
-            "and `gog list purchased --search TEXT`. Use `--backup`/`--back` (not the "
-            "word `backup` as plain text) to list backed-up games instead, so a game "
-            "actually titled that isn't shadowed by the subcommand name."
+            "List purchased games, or games already recorded in a backup manifest. "
+            "`gog list` alone lists your purchased library; `gog list TEXT` fuzzy-"
+            "searches it by title. Use `--backup`/`--back` to list the backup "
+            "manifest instead. Neither `purchased` nor `backup` is a reserved word, "
+            "so a game actually titled either one is never shadowed."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_LIST_EXAMPLES,
@@ -291,7 +291,7 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
         help="Search the public GOG catalog.",
         description=(
             "Search public GOG catalog data. Results are public catalog entries; "
-            "use `gog list purchased` for owned-library data."
+            "use `gog list` for owned-library data."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_SEARCH_EXAMPLES,
@@ -605,19 +605,20 @@ def _rewrite_help_command(argv: Sequence[str]) -> list[str]:
 
 
 def _rewrite_list_shorthand(argv: Sequence[str]) -> list[str]:
-    """Turn `gog list` into `gog list purchased` and `gog list TEXT` into
-    `gog list purchased --search TEXT`, so `list` works without the
-    `purchased` subcommand for the common case. `--backup`/`--back` routes to
-    `list backup` instead of a reserved positional keyword, so a bare word
-    like "backup" is always free to be a search query (e.g. a game actually
-    titled "Backup") rather than colliding with the subcommand name."""
+    """`purchased` is not a reserved word: `gog list` alone (or with only
+    flags) already means "list purchased games", so there's nothing else a
+    user would ever need to type to reach it. `gog list TEXT` is shorthand
+    for a fuzzy title search. `--backup`/`--back` route to the backup-manifest
+    listing instead of a reserved `backup` keyword, so a game actually titled
+    "backup" (or "purchased") is always free to be a search query rather than
+    colliding with a subcommand name."""
     args = list(argv)
     if not args or args[0] != "list":
         return args
     rest = args[1:]
     if not rest:
         return ["list", "purchased"]
-    if rest[0] in ("purchased", "-h", "--help"):
+    if rest[0] in ("-h", "--help"):
         return args
     if "--backup" in rest or "--back" in rest:
         rest = [tok for tok in rest if tok not in ("--backup", "--back")]
