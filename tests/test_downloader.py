@@ -98,6 +98,34 @@ def test_dest_already_exists_returns_skipped(tmp_path) -> None:
 
 
 @responses.activate
+def test_dest_exists_with_wrong_size_is_redownloaded(tmp_path) -> None:
+    # Simulates two files colliding on the same destination path: the file already
+    # there is actually a different file's content, so it must not be trusted as-is.
+    dest = tmp_path / "installer.exe"
+    dest.write_bytes(b"wrong content entirely")
+    responses.get(_URL, body=_CONTENT, status=200)
+
+    result = make_downloader().download(_URL, dest, expected_size=_SIZE, expected_md5=_MD5)
+
+    assert result.status == "verified"
+    assert dest.read_bytes() == _CONTENT
+
+
+@responses.activate
+def test_size_mismatch_accepted_when_not_strict(tmp_path) -> None:
+    responses.get(_URL, body=_CONTENT, status=200)
+
+    dest = tmp_path / "bonus.pdf"
+    result = make_downloader().download(
+        _URL, dest, expected_size=_SIZE + 100, strict_size=False
+    )
+
+    assert result.status == "verified"
+    assert result.expected_size == _SIZE
+    assert dest.read_bytes() == _CONTENT
+
+
+@responses.activate
 def test_size_mismatch_returns_failed(tmp_path) -> None:
     responses.get(_URL, body=_CONTENT, status=200)
 

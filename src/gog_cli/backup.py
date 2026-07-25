@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Literal
 
 from gog_cli.errors import UsageError
+from gog_cli.fuzzy import title_search_score
 from gog_cli.layout import BackupLayout, sanitize_filename
+from gog_cli.prompt import numbered_prompt
 
 ActionType = Literal["download", "skip", "verify", "conflict"]
 
@@ -171,6 +173,7 @@ def select_games(
     game_selectors: list[str] | None = None,
     exclude: list[str] | None = None,
     all_games: bool = False,
+    interactive: bool = False,
 ) -> list[dict]:
     if all_games and game_selectors:
         raise UsageError("--all and --game cannot be used together")
@@ -181,12 +184,12 @@ def select_games(
         selected = []
         for selector in game_selectors:
             matches = [g for g in library if _match_game(g, selector)]
-            if not matches:
-                raise UsageError(f"No game found matching {selector!r}")
             if len(matches) > 1:
                 titles = ", ".join(str(g.get("title", g.get("id"))) for g in matches)
                 raise UsageError(f"Selector {selector!r} matches multiple games: {titles}")
-            selected.append(matches[0])
+            if not matches:
+                matches = _resolve_fuzzy(library, selector, interactive=interactive)
+            selected.extend(matches)
     else:
         selected = []
 
@@ -195,3 +198,30 @@ def select_games(
             selected = [g for g in selected if not _match_game(g, selector)]
 
     return selected
+
+
+def _fuzzy_candidates(library: list[dict], selector: str) -> list[dict]:
+    scored = [(score, g) for g in library if (score := title_search_score(selector, g)) > 0]
+    scored.sort(key=lambda item: (-item[0], str(item[1].get("title", "")).casefold()))
+    return [g for _, g in scored]
+
+
+def _resolve_fuzzy(library: list[dict], selector: str, *, interactive: bool) -> list[dict]:
+    candidates = _fuzzy_candidates(library, selector)
+    if not candidates:
+        raise UsageError(f"No game found matching {selector!r}")
+    if len(candidates) == 1:
+        return candidates
+    if not interactive:
+        titles = ", ".join(
+            f"{g.get('title', g.get('id'))!r} ({_game_product_id(g)})" for g in candidates
+        )
+        raise UsageError(
+            f"{selector!r} matches multiple games: {titles}. "
+            "Use an exact id or slug, or run this interactively to pick one."
+        )
+    labels = [
+        f"{g.get('title', '')} ({_game_product_id(g)}, {g.get('slug', '')})" for g in candidates
+    ]
+    indices = numbered_prompt(labels, f"Multiple games match {selector!r} — select:")
+    return [candidates[i] for i in indices]

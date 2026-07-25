@@ -17,10 +17,12 @@ from gog_cli.refresh import handle_refresh
 _TOP_LEVEL_EXAMPLES = """examples:
   gog auth login
   gog refresh
-  gog list purchased --search witcher
+  gog list witcher
+  gog search "baldurs gate"
   gog plan --destination /backups/gog --all --storage
   gog backup --destination /backups/gog --games-from games.txt --downloader aria2c --yes
-  gog sync --destination /backups/gog --all --dry-run"""
+  gog sync --destination /backups/gog --all --dry-run
+  gog help download"""
 
 _AUTH_EXAMPLES = """examples:
   gog auth login
@@ -33,10 +35,11 @@ _REFRESH_EXAMPLES = """examples:
   gog refresh --format json"""
 
 _LIST_EXAMPLES = """examples:
-  gog list purchased
+  gog list
+  gog list witcher
   gog list purchased --search witcher --platform linux
-  gog list backup --destination /backups/gog
-  gog list backup --destination /backups/gog --format json"""
+  gog list --backup --destination /backups/gog
+  gog list --back --destination /backups/gog --format json"""
 
 _LIST_PURCHASED_EXAMPLES = """examples:
   gog list purchased --search witcher
@@ -48,8 +51,8 @@ _LIST_PURCHASED_EXAMPLES = """examples:
   gog list purchased --search "baldurs gate" --platform linux --format json"""
 
 _LIST_BACKUP_EXAMPLES = """examples:
-  gog list backup --destination /backups/gog
-  gog list backup --destination /backups/gog --format json"""
+  gog list --backup --destination /backups/gog
+  gog list --back --destination /backups/gog --format json"""
 
 _SEARCH_EXAMPLES = """examples:
   gog search witcher
@@ -65,11 +68,15 @@ _PLAN_EXAMPLES = """examples:
   gog plan --destination /backups/gog --all --format json"""
 
 _BACKUP_EXAMPLES = """examples:
+  gog dl "civilization iv"
+  gog dl 1760534591 --yes
+  gog dl "civilization iv" --win --extras
   gog backup --destination /backups/gog --all
   gog backup --destination /backups/gog --all --yes
   gog backup --destination /backups/gog --games-from games.txt --downloader aria2c --yes
   gog backup --destination /backups/gog --platform linux --language en --all --yes
-  gog backup --destination /backups/gog --all --format json"""
+  gog backup --destination /backups/gog --all --format json
+  gog download --all --yes  (alias for `backup`; destination defaults to the current directory)"""
 
 _SYNC_EXAMPLES = """examples:
   gog sync --destination /backups/gog --all
@@ -175,7 +182,13 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     list_cmd = subcommands.add_parser(
         "list",
         help="List games.",
-        description="List cached purchased games or games already recorded in a backup manifest.",
+        description=(
+            "List cached purchased games or games already recorded in a backup manifest. "
+            "`gog list` alone, or `gog list TEXT`, is shorthand for `gog list purchased` "
+            "and `gog list purchased --search TEXT`. Use `--backup`/`--back` (not the "
+            "word `backup` as plain text) to list backed-up games instead, so a game "
+            "actually titled that isn't shadowed by the subcommand name."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_LIST_EXAMPLES,
     )
@@ -356,12 +369,51 @@ def _add_selector_flags(parser: argparse.ArgumentParser) -> None:
         help="Limit to this platform (e.g. windows, linux, mac). Repeatable.",
     )
     grp.add_argument(
+        "--win", "--windows",
+        dest="platforms",
+        action="append_const",
+        const="windows",
+        help="Shortcut for --platform windows.",
+    )
+    grp.add_argument(
+        "--mac",
+        dest="platforms",
+        action="append_const",
+        const="mac",
+        help="Shortcut for --platform mac.",
+    )
+    grp.add_argument(
+        "--lin", "--linux",
+        dest="platforms",
+        action="append_const",
+        const="linux",
+        help="Shortcut for --platform linux.",
+    )
+    grp.add_argument(
         "-l", "--language",
         metavar="LANG",
         action="append",
         default=[],
         dest="languages",
         help="Limit to this language code. Repeatable.",
+    )
+    grp.add_argument(
+        "-r", "--role",
+        metavar="ROLE",
+        action="append",
+        default=[],
+        dest="file_roles",
+        help=(
+            "Limit to this file role (installer, patch, extra, language_pack, "
+            "manual). Repeatable."
+        ),
+    )
+    grp.add_argument(
+        "--extras",
+        dest="file_roles",
+        action="append_const",
+        const="extra",
+        help="Shortcut for --role extra.",
     )
 
 
@@ -381,26 +433,34 @@ def _add_interaction_flags(parser: argparse.ArgumentParser) -> None:
     grp.add_argument(
         "-D", "--downloader",
         choices=["direct", "aria2c"],
-        default="direct",
-        help="Download engine to use (default: direct).",
+        default=None,
+        help="Download engine to use (default: aria2c if installed, otherwise direct).",
     )
 
 
 def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     backup = subcommands.add_parser(
         "backup",
+        aliases=["download", "dl"],
         help="Back up owned GOG games to a local directory.",
         description=(
             "Plan or execute a local backup. Without --yes this command prints "
-            "a dry-run plan and exits without downloading or modifying backup files."
+            "a dry-run plan and exits without downloading or modifying backup files. "
+            "`gog download` is an alias for this command."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_BACKUP_EXAMPLES,
     )
     backup.add_argument(
+        "selectors",
+        nargs="*",
+        metavar="GAME",
+        help="Game selector by product id, slug, or title (fuzzy-matched). Repeatable.",
+    )
+    backup.add_argument(
         "-d", "--destination",
         type=Path,
-        help="Directory where game backups should be stored.",
+        help="Directory where game backups should be stored (default: current directory).",
     )
     backup.add_argument(
         "--dry-run",
@@ -468,7 +528,7 @@ def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     plan.add_argument(
         "-d", "--destination",
         type=Path,
-        help="Directory where game backups should be stored.",
+        help="Directory where game backups should be stored (default: current directory).",
     )
     plan.add_argument(
         "-f", "--format",
@@ -524,7 +584,7 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     sync.add_argument(
         "-d", "--destination",
         type=Path,
-        help="Backup destination directory to sync.",
+        help="Backup destination directory to sync (default: current directory).",
     )
     sync.add_argument(
         "--dry-run",
@@ -536,8 +596,42 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     sync.set_defaults(handler=handle_sync)
 
 
+def _rewrite_help_command(argv: Sequence[str]) -> list[str]:
+    """Turn `gog help [command...]` into `gog [command...] --help`."""
+    args = list(argv)
+    if args and args[0] == "help":
+        return [*args[1:], "--help"]
+    return args
+
+
+def _rewrite_list_shorthand(argv: Sequence[str]) -> list[str]:
+    """Turn `gog list` into `gog list purchased` and `gog list TEXT` into
+    `gog list purchased --search TEXT`, so `list` works without the
+    `purchased` subcommand for the common case. `--backup`/`--back` routes to
+    `list backup` instead of a reserved positional keyword, so a bare word
+    like "backup" is always free to be a search query (e.g. a game actually
+    titled "Backup") rather than colliding with the subcommand name."""
+    args = list(argv)
+    if not args or args[0] != "list":
+        return args
+    rest = args[1:]
+    if not rest:
+        return ["list", "purchased"]
+    if rest[0] in ("purchased", "-h", "--help"):
+        return args
+    if "--backup" in rest or "--back" in rest:
+        rest = [tok for tok in rest if tok not in ("--backup", "--back")]
+        return ["list", "backup", *rest]
+    if rest[0].startswith("-"):
+        return ["list", "purchased", *rest]
+    return ["list", "purchased", "--search", *rest]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    argv = sys.argv[1:] if argv is None else list(argv)
+    argv = _rewrite_help_command(argv)
+    argv = _rewrite_list_shorthand(argv)
     args = parser.parse_args(argv)
     try:
         return args.handler(args)

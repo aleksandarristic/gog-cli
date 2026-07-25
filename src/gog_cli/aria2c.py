@@ -23,6 +23,11 @@ def find_aria2c() -> Path | None:
     return Path(found) if found else None
 
 
+def default_downloader() -> str:
+    """Return "aria2c" if the binary is on PATH, otherwise "direct"."""
+    return "aria2c" if find_aria2c() is not None else "direct"
+
+
 def check_aria2c(required: bool = True) -> Path:
     """Return aria2c path or raise UsageError if not found and required=True."""
     path = find_aria2c()
@@ -81,13 +86,24 @@ def download_via_aria2c(
     expected_md5: str | None = None,
     aria2c_policy: str = "auto",
     aria2c_path: Path | None = None,
+    strict_size: bool = True,
     logger: logging.Logger | None = None,
 ) -> DownloadResult:
     log = logger or logging.getLogger(__name__)
 
     aria2_control = Path(str(dest) + ".aria2")
     if dest.exists() and not aria2_control.exists():
-        return DownloadResult(status="skipped", path=dest, expected_size=expected_size)
+        actual_size = dest.stat().st_size
+        if expected_size is None or actual_size == expected_size:
+            return DownloadResult(
+                status="skipped",
+                path=dest,
+                bytes_downloaded=actual_size,
+                expected_size=expected_size,
+            )
+        # File at dest doesn't match what we expect (e.g. a colliding destination path
+        # or a stale leftover) — don't trust it blindly, let aria2c fetch it fresh.
+        dest.unlink()
 
     binary = aria2c_path or check_aria2c()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -148,13 +164,17 @@ def download_via_aria2c(
     actual_size = dest.stat().st_size
 
     if expected_size is not None and actual_size != expected_size:
-        return DownloadResult(
-            status="failed",
-            path=dest,
-            expected_size=expected_size,
-            failure_code="size_mismatch",
-            failure_message=f"Expected {expected_size} bytes, got {actual_size}",
-        )
+        if strict_size:
+            return DownloadResult(
+                status="failed",
+                path=dest,
+                expected_size=expected_size,
+                failure_code="size_mismatch",
+                failure_message=f"Expected {expected_size} bytes, got {actual_size}",
+            )
+        # No checksum to cross-check against, and the declared size for this role is
+        # known to be an unreliable estimate — trust the completed transfer.
+        expected_size = actual_size
 
     checksum_verified = False
     if expected_md5 is not None:

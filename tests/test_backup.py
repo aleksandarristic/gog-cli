@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,34 @@ def test_select_all_and_game_raises() -> None:
 def test_select_no_selectors_returns_empty() -> None:
     result = select_games(LIBRARY)
     assert result == []
+
+
+def test_select_fuzzy_single_match() -> None:
+    result = select_games(LIBRARY, game_selectors=["cyberpunk"])
+    assert result[0]["slug"] == "cyberpunk_2077"
+
+
+def test_select_fuzzy_no_match_raises() -> None:
+    with pytest.raises(UsageError, match="No game found"):
+        select_games(LIBRARY, game_selectors=["completely unrelated query"])
+
+
+def test_select_fuzzy_ambiguous_non_interactive_raises() -> None:
+    library = [*LIBRARY, {"id": 4444, "title": "Witcher 2", "slug": "witcher_2"}]
+    with pytest.raises(UsageError, match="matches multiple games"):
+        select_games(library, game_selectors=["witcher"])
+
+
+def test_select_fuzzy_ambiguous_interactive_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tied fuzzy scores sort by title, so candidates are ["Witcher 2", "Witcher 3"];
+    # "2" on the prompt picks the second one, i.e. Witcher 3 (id 1111).
+    library = [*LIBRARY, {"id": 4444, "title": "Witcher 2", "slug": "witcher_2"}]
+    monkeypatch.setattr("sys.stdin", io.StringIO("2\n"))
+
+    result = select_games(library, game_selectors=["witcher"], interactive=True)
+
+    assert len(result) == 1
+    assert result[0]["id"] == 1111
 
 
 # --- plan_backup ---

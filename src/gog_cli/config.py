@@ -31,7 +31,7 @@ _KNOWN_DEFAULTS_KEYS = frozenset(
 @dataclass
 class Config:
     destination: Path | None = None
-    downloader: str = "direct"
+    downloader: str | None = None
     aria2c_policy: str = "auto"
     platforms: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
@@ -115,7 +115,7 @@ def _parse_bool(value: str, name: str) -> bool:
 
 
 def _validate(config: Config) -> None:
-    if config.downloader not in _VALID_DOWNLOADERS:
+    if config.downloader is not None and config.downloader not in _VALID_DOWNLOADERS:
         raise UsageError(
             f"Invalid downloader {config.downloader!r}."
             f" Must be one of: {', '.join(sorted(_VALID_DOWNLOADERS))}"

@@ -48,14 +48,21 @@ class Downloader:
         expected_size: int | None = None,
         expected_md5: str | None = None,
         resume: bool = True,
+        strict_size: bool = True,
         progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> DownloadResult:
         if dest.exists():
-            return DownloadResult(
-                status="skipped",
-                path=dest,
-                expected_size=expected_size,
-            )
+            actual_size = dest.stat().st_size
+            if expected_size is None or actual_size == expected_size:
+                return DownloadResult(
+                    status="skipped",
+                    path=dest,
+                    bytes_downloaded=actual_size,
+                    expected_size=expected_size,
+                )
+            # File at dest doesn't match what we expect (e.g. it's a leftover from a
+            # colliding destination path or a stale partial run) — don't trust it blindly.
+            dest.unlink()
 
         temp_path = dest.parent / f".{dest.name}.part"
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -135,14 +142,20 @@ class Downloader:
         if expected_size is not None:
             actual_size = temp_path.stat().st_size
             if actual_size != expected_size:
-                return DownloadResult(
-                    status="failed",
-                    temp_path=temp_path,
-                    bytes_downloaded=bytes_downloaded,
-                    expected_size=expected_size,
-                    failure_code="size_mismatch",
-                    failure_message=(f"Expected {expected_size} bytes, got {actual_size}"),
-                )
+                if not strict_size:
+                    # No checksum to cross-check against, and the declared size for this
+                    # role is known to be an unreliable estimate — trust the completed
+                    # transfer instead of hard-failing on it.
+                    expected_size = actual_size
+                else:
+                    return DownloadResult(
+                        status="failed",
+                        temp_path=temp_path,
+                        bytes_downloaded=bytes_downloaded,
+                        expected_size=expected_size,
+                        failure_code="size_mismatch",
+                        failure_message=(f"Expected {expected_size} bytes, got {actual_size}"),
+                    )
 
         # MD5 verification
         if expected_md5 is not None:
