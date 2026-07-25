@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses as rsps_lib
 
+from gog_cli import __version__
 from gog_cli.cli import main
 from gog_cli.errors import ExitCode
 from gog_cli.layout import BackupLayout
@@ -28,7 +29,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
 
     assert exc_info.value.code == 0
-    assert "gog 0.3.1" in capsys.readouterr().out
+    assert f"gog {__version__}" in capsys.readouterr().out
 
 
 def test_list_purchased_human(
