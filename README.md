@@ -16,6 +16,17 @@ It is focused on safe, scriptable workflows:
 - download installers and related files with resumable behavior
 - verify downloaded files when checksums are available
 
+It's also comfortable as a quick, interactive tool:
+
+```sh
+gog list                    # your purchased library
+gog list civilization       # fuzzy title search
+gog search "baldurs gate"   # public catalog, with an "owned" column
+gog dl "civilization iv"    # download by name or id in the current directory
+gog dl 1760534591 --win     # unambiguous by id, Windows files only
+gog help dl                 # contextual help for any command
+```
+
 ## Install
 
 Requires Python 3.12 or newer.
@@ -44,8 +55,8 @@ Run the CLI locally:
 ```sh
 gog --help
 gog list
-gog plan --destination /path/to/backups --all --summary
-gog backup --destination /path/to/backups --games-from games.txt --dry-run
+gog plan --all --summary
+gog dl --games-from games.txt --dry-run
 ```
 
 ## Roadmap
@@ -65,13 +76,16 @@ gog refresh
 gog list purchased
 gog plan --destination /path/to/backups --all --storage --check-free-space
 gog backup --destination /path/to/backups --all --yes
-gog list backed-up --destination /path/to/backups
+gog list --backup --destination /path/to/backups
 gog sync --destination /path/to/backups --all --yes
 ```
 
 `gog refresh` updates the local purchased-library and download-metadata caches.
 It does not download game installers. Run it before browsing or filtering newly
 added library metadata.
+
+`--destination` is optional everywhere above — it defaults to the current
+directory, so `cd` into a backup folder and drop it from every command.
 
 ## Browsing Purchased Games
 
@@ -80,9 +94,17 @@ contact GOG. Human output includes ID, title, release year, genre/category, and
 platforms when those fields are available. JSON output also includes scriptable
 metadata such as `owned`, `release_date`, `genres`, and `is_installable`.
 
+`gog list` alone is shorthand for `gog list purchased`, and `gog list TEXT` is
+shorthand for `gog list purchased --search TEXT` — the explicit forms below
+still work and combine with any other flag. `gog list --backup`/`--back`
+(instead of a bare `backup` keyword) lists games recorded in a backup
+manifest, so a game actually titled that isn't shadowed by the flag.
+
 Examples:
 
 ```sh
+gog list
+gog list witcher
 gog list purchased
 gog list purchased --format json
 gog list purchased --search witcher
@@ -96,6 +118,10 @@ gog list purchased --genre arcade,rts
 gog list purchased --genre strategy --include-unknown-genre
 gog list purchased --search "baldurs gate" --platform linux --format json
 ```
+
+Use `gog search TEXT` to search the public GOG catalog instead of your local
+library — results include an `owned` column/field so you can see at a glance
+whether you already have a game.
 
 Year filters omit games with unknown years by default; use
 `--include-unknown-year` to keep them. Genre filters similarly omit unknown
@@ -127,12 +153,38 @@ gog plan --destination /path/to/backups --all --platform windows --language en -
 
 ## Selecting Games
 
-Game selectors can be product IDs, slugs, or exact titles. Commands that select
-games accept repeated `--game` flags:
+The simplest way to select a game is a bare positional argument — a product
+ID, slug, or title. Titles don't need to be exact: if there's no exact
+id/slug/title match, the selector falls back to fuzzy title matching.
+
+```sh
+gog dl "civilization iv"          # fuzzy title match
+gog dl 1760534591                 # exact id, never ambiguous
+gog backup witcher_3 --yes
+```
+
+If a fuzzy selector matches more than one game, `gog` prompts you to pick one
+at an interactive terminal, or exits with an error listing the candidates
+otherwise (scripts, `--no-interactive`, or CI). Use an exact id or slug to
+sidestep ambiguity entirely.
+
+`--game`/`-g` behaves the same but only ever matches exactly (product id,
+slug, or exact title) — no fuzzy fallback — which is what you want for
+scripts and `games.txt` files where the match must be deterministic. It's
+repeatable:
 
 ```sh
 gog plan --destination /path/to/backups --game witcher_3 --game cyberpunk_2077
 gog backup --destination /path/to/backups --game 123456789 --yes
+```
+
+Platform and role filters have shortcut flags on top of the general
+`--platform`/`--role` options:
+
+```sh
+gog dl "civilization iv" --win              # shortcut for --platform windows
+gog dl "baldurs gate 3" --mac --lin         # --mac / --lin (or --linux)
+gog dl "civilization iv" --extras           # shortcut for --role extra
 ```
 
 For larger curated lists, put selectors in a UTF-8 text file and pass
@@ -161,11 +213,14 @@ combine explicit game selectors with `--all`.
 
 ## Downloading
 
-`gog backup` defaults to the built-in direct downloader. To use `aria2c`, install
-`aria2c` and pass `--downloader aria2c` on an executing backup run:
+`gog backup`/`gog download`/`gog dl` are the same command. If `aria2c` is
+installed and on `PATH`, it's used automatically; otherwise the built-in
+direct downloader is used. Pass `--downloader` explicitly to override either
+way:
 
 ```sh
-gog backup --destination /path/to/backups --games-from games.txt --downloader aria2c --yes
+gog dl --games-from games.txt --yes                    # aria2c if present, else direct
+gog dl --games-from games.txt --downloader direct --yes # force the built-in downloader
 ```
 
 When file size metadata is available, `gog` chooses `aria2c` connection settings
