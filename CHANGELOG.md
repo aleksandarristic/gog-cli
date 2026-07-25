@@ -7,6 +7,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0] — 2026-07-25
+
+### Fixed
+- Multi-file installer entries lacking a per-file id collided on the same
+  destination path and manifest `file_id`, silently dropping every part but
+  the first.
+- `Downloader.download()`/`download_via_aria2c()` treated any pre-existing
+  destination file as done without checking size, masking the collision
+  above (and any other stale/partial file).
+- Bonus-content files with no real checksum were hard-failing on GOG's
+  imprecise declared size.
+- `aria2c` is now used automatically when present on `PATH`, falling back to
+  the direct downloader otherwise.
+
+### Added
+- `gog download`/`gog dl` aliases for `backup`; `gog help <command>`.
+- Fuzzy, positional `GAME` selector on `plan`/`backup`/`download`/`dl`/`sync`,
+  with interactive disambiguation when a fuzzy match is ambiguous.
+- `gog list` alone lists purchased games; `gog list TEXT` is fuzzy-search
+  shorthand. `--backup`/`--back` list the backup manifest.
+- `--win`/`--windows`, `--mac`, `--lin`/`--linux` platform shortcuts and
+  `-r`/`--role`/`--extras` file-role filter.
+
+### Changed
+- `--destination` defaults to the current directory instead of erroring
+  when omitted.
+- Neither `purchased` nor `backup` is a reserved word under `gog list`
+  anymore — a game actually titled either one is never shadowed.
+
+---
+
 ## [0.3.0] — 2026-06-30
 
 ### Added
