@@ -1240,7 +1240,14 @@ def test_sync_selector_flags_parse(
     )
 
 
-def test_no_interactive_flag_parses(capsys: pytest.CaptureFixture[str]) -> None:
+def test_no_interactive_flag_parses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(tmp_path, [])
+
     assert main(["backup", "--dry-run", "--no-interactive", "--game", "witcher-3"]) == 2
 
 
