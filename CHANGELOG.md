@@ -7,6 +7,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.1] — 2026-08-02
+
+### Fixed
+- Existing installers remain intact until replacement downloads complete and
+  pass verification, for both direct and `aria2c` downloads.
+- Sanitized game-directory and installer-name collisions are disambiguated or
+  rejected before they can overwrite another backup.
+- Per-game download metadata now expires after two weeks instead of remaining
+  cached indefinitely.
+- CLI flags correctly override configuration defaults, non-interactive mode is
+  honored, and JSON output stays valid for complete backup and sync workflows.
+- Refresh tokens are omitted from session JSON when OS-keyring storage succeeds.
+- Network, verification, and filesystem failures return their documented exit
+  codes instead of generic failures or uncaught tracebacks.
+
+### Added
+- JSON output support for `gog sync` plans and execution.
+
+---
+
 ## [1.0.0] — 2026-07-25
 
 ### Fixed
