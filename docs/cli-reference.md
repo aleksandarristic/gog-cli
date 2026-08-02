@@ -178,7 +178,7 @@ Two network operations are performed:
 
 1. The paginated library endpoint is iterated to build the local game list.
 2. For each game, download metadata (installer list, file sizes, downlink URLs)
-   is fetched and cached individually. Files cached within the last 24 hours
+   is fetched and cached individually. Files cached within the last two weeks
    are skipped unless `--force` is used.
 
 **Flags:**
@@ -198,7 +198,7 @@ gog refresh --format json
 
 **When to run:** Run before browsing the library or planning backups after
 adding new games to a GOG account. Does not need to be run before every backup;
-the download metadata cache remains valid for 24 hours.
+the download metadata cache remains valid for two weeks.
 
 **Exit codes:** `0` on success, `3` if not authenticated, `4` on network
 error.
@@ -606,16 +606,17 @@ gog backup --destination /backups/gog --all --exclude cyberpunk_2077 --yes
 gog backup --destination /backups/gog --all --yes --format json
 ```
 
-**Exit codes:** `0` on success, `1` if any file failed, `2` on usage error,
-`3` on authentication failure, `4` on network error, `6` if disk space check
-fails or destination is not a directory, `8` if the library cache is missing.
+**Exit codes:** `0` on success, `1` if an unclassified file operation failed,
+`2` on usage error, `3` on authentication failure, `4` on network error, `5`
+on checksum or size verification failure, `6` on filesystem failure, and `8`
+if a required cache is missing.
 
 ---
 
 ### gog sync
 
 ```
-gog sync --destination PATH [game selection flags] [interaction flags]
+gog sync --destination PATH [game selection flags] [interaction flags] [--format {human,json}]
 ```
 
 Compares cached source metadata against the backup manifest and plans updates
@@ -639,6 +640,7 @@ been run at least once for the destination).
 | `--yes` | Execute the sync. |
 | `--no-interactive` / `-n` | Fail rather than prompt when no games are selected. |
 | `--downloader` / `-D` | `direct` (default) or `aria2c`. |
+| `--format` / `-f` | Output format: `human` (default) or `json`. |
 
 Game selection flags are described in [Game Selectors](#game-selectors).
 
@@ -666,8 +668,10 @@ gog sync --destination /backups/gog --games-from games.txt --yes
 gog sync --destination /backups/gog --all --downloader aria2c --dry-run
 ```
 
-**Exit codes:** `0` on success, `1` if any file failed, `2` on usage error,
-`3` on authentication failure, `6` if the manifest is missing.
+**Exit codes:** `0` on success, `1` if an unclassified file operation failed,
+`2` on usage error, `3` on authentication failure, `4` on network error, `5`
+on checksum or size verification failure, and `6` on filesystem failure or a
+missing manifest.
 
 ---
 

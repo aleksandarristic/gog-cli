@@ -171,7 +171,7 @@ def _cache_status(
 ) -> CacheStatus:
     if max_age is None:
         return "fresh"
-    updated_at = data.get("updated_at")
+    updated_at = data.get("updated_at") or data.get("fetched_at")
     if not isinstance(updated_at, str):
         return "stale"
     updated = _parse_timestamp(updated_at)

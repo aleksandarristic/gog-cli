@@ -6,7 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from gog_cli.backup import FileSpec, PlannedFile, _game_product_id, _role_dir
+from gog_cli.backup import (
+    FileSpec,
+    PlannedFile,
+    _claim_destination,
+    _game_directory_name,
+    _game_product_id,
+    _role_dir,
+    build_game_directory_names,
+)
 from gog_cli.layout import BackupLayout, sanitize_filename
 
 ComparisonStatus = Literal["current", "stale", "missing", "partial", "unverified"]
@@ -83,6 +91,7 @@ def plan_sync(
     platforms: list[str] | None = None,
     languages: list[str] | None = None,
     file_roles: list[str] | None = None,
+    game_directories: dict[str, str] | None = None,
 ) -> SyncPlan:
     manifest_games: dict[str, dict] = {}
     for g in manifest.get("games", []):
@@ -95,11 +104,14 @@ def plan_sync(
     to_verify: list[PlannedFile] = []
     current: list[FileComparison] = []
     estimated_bytes = 0
+    destination_owners: dict[Path, FileSpec] = {}
+
+    if game_directories is None:
+        game_directories = build_game_directory_names(games)
 
     for game in games:
         product_id = _game_product_id(game)
-        slug = sanitize_filename(game.get("slug") or product_id)
-        game_dir = layout.game_dir(slug)
+        game_dir = layout.game_dir(_game_directory_name(game, game_directories))
         game_manifest = manifest_games.get(product_id, {})
 
         for spec in download_specs.get(product_id, []):
@@ -117,6 +129,7 @@ def plan_sync(
 
             dest_dir = _role_dir(layout, game_dir, spec.role)
             dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
+            _claim_destination(destination_owners, dest, spec)
 
             if comparison.status in ("missing", "stale", "partial"):
                 to_download.append(PlannedFile(spec=spec, dest=dest, action="download"))

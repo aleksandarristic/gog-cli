@@ -21,7 +21,9 @@ from gog_cli.backup import (
     BackupPlan,
     FileSpec,
     PlannedFile,
+    _game_directory_name,
     _game_product_id,
+    build_game_directory_names,
     plan_backup,
     select_games,
 )
@@ -70,7 +72,7 @@ class ExecutionResult:
 
 def handle_backup(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=False)
-    selected = _select_games(context.library, args)
+    selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
     _validate_filters(context, selected)
     plan = plan_backup(
@@ -81,6 +83,7 @@ def handle_backup(args: argparse.Namespace) -> int:
         platforms=context.platforms,
         languages=context.languages,
         file_roles=context.file_roles,
+        game_directories=context.game_directories,
     )
 
     if (
@@ -96,13 +99,14 @@ def handle_backup(args: argparse.Namespace) -> int:
         return ExitCode.FILESYSTEM
 
     is_dry_run = args.dry_run or not args.yes
-    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    output_format = context.output_format
 
     if is_dry_run and output_format == OutputFormat.JSON:
         _print_plan_json(plan, context, selected, args)
         return ExitCode.SUCCESS
 
-    _print_backup_plan(plan, context, selected, args, is_dry_run=is_dry_run)
+    if output_format == OutputFormat.HUMAN:
+        _print_backup_plan(plan, context, selected, args, is_dry_run=is_dry_run)
 
     if is_dry_run:
         return ExitCode.SUCCESS
@@ -123,7 +127,7 @@ def handle_plan(args: argparse.Namespace) -> int:
 
 def handle_sync(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=True)
-    selected = _select_games(context.library, args)
+    selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
     _validate_filters(context, selected)
     plan = plan_sync(
@@ -135,13 +139,17 @@ def handle_sync(args: argparse.Namespace) -> int:
         platforms=context.platforms,
         languages=context.languages,
         file_roles=context.file_roles,
+        game_directories=context.game_directories,
     )
     files_to_process = [*plan.to_download, *plan.to_verify]
-    _print_sync_plan(plan, len(files_to_process))
-
-    if args.dry_run:
+    is_dry_run = args.dry_run or not args.yes
+    if context.output_format == OutputFormat.JSON and is_dry_run:
+        _print_sync_plan_json(plan)
         return ExitCode.SUCCESS
-    if not args.yes:
+    if context.output_format == OutputFormat.HUMAN:
+        _print_sync_plan(plan, len(files_to_process))
+
+    if is_dry_run:
         print_human(["Dry run. Re-run with --yes to execute."])
         return ExitCode.SUCCESS
 
@@ -163,6 +171,8 @@ class _ExecutionContext:
     languages: list[str]
     file_roles: list[str]
     client: GogApiClient
+    game_directories: dict[str, str]
+    interactive: bool
 
 
 def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _ExecutionContext:
@@ -183,6 +193,10 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
         manifest = _read_manifest(layout.manifest_file, missing_ok=True)
 
     downloader = args.downloader or config.downloader or default_downloader()
+    game_directories = build_game_directory_names(
+        library,
+        existing=_manifest_game_directories(manifest),
+    )
 
     return _ExecutionContext(
         paths=paths,
@@ -191,13 +205,17 @@ def _load_context(args: argparse.Namespace, *, require_manifest: bool) -> _Execu
         library=library,
         download_specs={},
         manifest=manifest,
-        output_format=OutputFormat(config.output_format),
+        output_format=OutputFormat(
+            getattr(args, "output_format", None) or config.output_format
+        ),
         downloader=downloader,
         aria2c_policy=config.aria2c_policy,
         platforms=args.platforms or config.platforms,
         languages=args.languages or config.languages,
         file_roles=args.file_roles or config.file_roles,
         client=GogApiClient(FileTokenStore(paths)),
+        game_directories=game_directories,
+        interactive=config.interactive,
     )
 
 
@@ -290,9 +308,14 @@ def parse_download_specs(cache: dict[str, Any]) -> list[FileSpec]:
     return specs
 
 
-def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
+def _select_games(
+    library: list[dict[str, Any]],
+    args: argparse.Namespace,
+    *,
+    interactive_default: bool,
+) -> list[dict[str, Any]]:
     game_selectors = _game_selectors_from_args(args)
-    interactive = not args.no_interactive and is_interactive()
+    interactive = interactive_default and not args.no_interactive and is_interactive()
     if args.all_games or game_selectors:
         selected = select_games(
             library,
@@ -302,7 +325,7 @@ def _select_games(library: list[dict[str, Any]], args: argparse.Namespace) -> li
             interactive=interactive,
         )
     else:
-        if args.no_interactive or not is_interactive():
+        if args.no_interactive or not interactive_default or not is_interactive():
             raise UsageError("No games selected. Use --all, --game, or --games-from.")
         labels = [
             f"{game.get('title', '')} ({_game_product_id(game)}, {game.get('slug', '')})"
@@ -359,9 +382,15 @@ def _execute_files(
 ) -> int:
     session = requests.Session()
     downloader = Downloader(session)
-    file_to_game = _map_files_to_games(context.layout, selected_games, context.download_specs)
+    file_to_game = _map_files_to_games(
+        context.layout,
+        selected_games,
+        context.download_specs,
+        context.game_directories,
+    )
     results: list[ExecutionResult] = []
     auth_failed = False
+    claimed_destinations: dict[Path, FileSpec] = {}
 
     context.destination.mkdir(parents=True, exist_ok=True)
     if context.downloader == "aria2c" and files_to_process:
@@ -370,6 +399,10 @@ def _execute_files(
     for planned in files_to_process:
         game = file_to_game.get(str(planned.dest), {})
         if planned.action in {"skip", "verify"}:
+            collision = _claim_runtime_destination(claimed_destinations, planned)
+            if collision is not None:
+                results.append(_record_and_report(context, command, game, planned, collision))
+                continue
             result = _verify_existing(planned)
             results.append(_record_and_report(context, command, game, planned, result))
             continue
@@ -396,7 +429,11 @@ def _execute_files(
             results.append(_record_and_report(context, command, game, planned, result))
             continue
 
-        _apply_header_filename(session, signed_url, planned, context.layout, game)
+        _apply_header_filename(session, signed_url, planned)
+        collision = _claim_runtime_destination(claimed_destinations, planned)
+        if collision is not None:
+            results.append(_record_and_report(context, command, game, planned, collision))
+            continue
         expected_md5, expected_size = _resolve_checksum(session, checksum_url, planned.spec)
         planned.spec.expected_md5 = expected_md5
         planned.spec.expected_size = expected_size
@@ -425,8 +462,33 @@ def _execute_files(
         return ExitCode.SUCCESS
     failed = [item for item in results if item.result.status in {"failed", "partial"}]
     if failed:
+        failure_codes = {item.result.failure_code for item in failed}
+        if failure_codes & {"checksum_mismatch", "size_mismatch"}:
+            return ExitCode.VERIFICATION
+        if failure_codes & {"network_error", "resolve_failed"}:
+            return ExitCode.NETWORK
         return ExitCode.FAILURE
     return ExitCode.SUCCESS
+
+
+def _claim_runtime_destination(
+    claimed: dict[Path, FileSpec],
+    planned: PlannedFile,
+) -> DownloadResult | None:
+    previous = claimed.get(planned.dest)
+    if previous is not None:
+        return DownloadResult(
+            status="failed",
+            path=planned.dest,
+            expected_size=planned.spec.expected_size,
+            failure_code="path_collision",
+            failure_message=(
+                "Resolved download path collides with another source file: "
+                f"{previous.source_id!r} and {planned.spec.source_id!r}"
+            ),
+        )
+    claimed[planned.dest] = planned.spec
+    return None
 
 
 def _verify_existing(planned: PlannedFile) -> DownloadResult:
@@ -547,12 +609,12 @@ def _update_manifest(
     product_id = _game_product_id(game)
     game_record = next((g for g in games if str(g.get("product_id")) == product_id), None)
     if game_record is None:
-        slug = sanitize_filename(str(game.get("slug") or product_id))
+        directory_name = planned.dest.relative_to(layout.games_dir).parts[0]
         game_record = {
             "product_id": product_id,
             "title": game.get("title", ""),
             "slug": game.get("slug", ""),
-            "directory": f"games/{slug}",
+            "directory": f"games/{directory_name}",
             "files": [],
         }
         games.append(game_record)
@@ -628,16 +690,37 @@ def _new_manifest() -> dict[str, Any]:
     }
 
 
+def _manifest_game_directories(manifest: dict[str, Any]) -> dict[str, str]:
+    """Return safe existing game-directory names keyed by product ID."""
+    directories: dict[str, str] = {}
+    for game in manifest.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        product_id = str(game.get("product_id", ""))
+        raw_directory = game.get("directory")
+        if not product_id or not isinstance(raw_directory, str):
+            continue
+        candidate = Path(raw_directory)
+        if (
+            not candidate.is_absolute()
+            and len(candidate.parts) == 2  # noqa: PLR2004
+            and candidate.parts[0] == "games"
+            and candidate.parts[1] not in {"", ".", ".."}
+        ):
+            directories[product_id] = candidate.parts[1]
+    return directories
+
+
 def _map_files_to_games(
     layout: BackupLayout,
     selected_games: list[dict[str, Any]],
     download_specs: dict[str, list[FileSpec]],
+    game_directories: dict[str, str],
 ) -> dict[str, dict[str, Any]]:
     mapping: dict[str, dict[str, Any]] = {}
     for game in selected_games:
         product_id = _game_product_id(game)
-        slug = sanitize_filename(str(game.get("slug") or product_id))
-        game_dir = layout.game_dir(slug)
+        game_dir = layout.game_dir(_game_directory_name(game, game_directories))
         for spec in download_specs.get(product_id, []):
             dest = (
                 game_dir
@@ -676,8 +759,6 @@ def _apply_header_filename(
     session: requests.Session,
     signed_url: str,
     planned: PlannedFile,
-    layout: BackupLayout,
-    game: dict[str, Any],
 ) -> None:
     if planned.spec.filename:
         return
@@ -685,13 +766,7 @@ def _apply_header_filename(
     if not filename:
         return
     planned.spec.filename = filename
-    product_id = _game_product_id(game)
-    slug = sanitize_filename(str(game.get("slug") or product_id))
-    planned.dest = (
-        layout.game_dir(slug)
-        / _role_subdir(planned.spec.role)
-        / sanitize_filename(filename)
-    )
+    planned.dest = planned.dest.with_name(sanitize_filename(filename))
 
 
 def _filename_from_headers(session: requests.Session, signed_url: str) -> str | None:
@@ -728,10 +803,11 @@ def _human_size(n: int | None) -> str:
 def _group_planned_by_game(
     plan: BackupPlan,
     selected: list[dict[str, Any]],
+    game_directories: dict[str, str],
 ) -> list[tuple[dict[str, Any], list[PlannedFile]]]:
     games_dir = BackupLayout(plan.destination).games_dir
     slug_to_game = {
-        sanitize_filename(g.get("slug") or _game_product_id(g)): g
+        _game_directory_name(g, game_directories): g
         for g in selected
     }
     slug_to_files: dict[str, list[PlannedFile]] = {s: [] for s in slug_to_game}
@@ -768,7 +844,7 @@ def _print_backup_plan(
         f"Policy: platforms={platforms_label}  languages={languages_label}  roles={roles_label}"
     ])
 
-    groups = _group_planned_by_game(plan, selected)
+    groups = _group_planned_by_game(plan, selected, context.game_directories)
     complete_games = sum(
         1 for _, files in groups
         if files and all(pf.skip_reason == "already_exists" for pf in files)
@@ -854,7 +930,7 @@ def _print_plan_json(
     selected: list[dict[str, Any]],
     args: argparse.Namespace,
 ) -> None:
-    groups = _group_planned_by_game(plan, selected)
+    groups = _group_planned_by_game(plan, selected, context.game_directories)
     complete_games = sum(
         1 for _, files in groups
         if files and all(pf.skip_reason == "already_exists" for pf in files)
@@ -942,6 +1018,22 @@ def _print_sync_plan(plan: SyncPlan, files_to_process: int) -> None:
             f"{len(plan.current)} files current. {files_to_process} files need work.",
             f"Estimated bytes: {plan.estimated_bytes}.",
         ]
+    )
+
+
+def _print_sync_plan_json(plan: SyncPlan) -> None:
+    print_json(
+        JsonEnvelope(
+            command="sync plan",
+            data={
+                "mode": "dry_run",
+                "target_directory": str(plan.destination),
+                "download_files": len(plan.to_download),
+                "verify_files": len(plan.to_verify),
+                "current_files": len(plan.current),
+                "estimated_bytes": plan.estimated_bytes,
+            },
+        )
     )
 
 

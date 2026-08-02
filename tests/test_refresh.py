@@ -11,7 +11,7 @@ import responses as rsps_lib
 
 from gog_cli.errors import AuthError, ExitCode
 from gog_cli.refresh import _compute_delta, _fetch_library, _normalize_game, handle_refresh
-from gog_cli.state import resolve_app_paths
+from gog_cli.state import resolve_app_paths, utc_timestamp
 
 _LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
 _PRODUCT_URL_1 = "https://api.gog.com/products/1"
@@ -262,10 +262,36 @@ def test_handle_refresh_skips_existing_download_cache(
 
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     paths.downloads_cache_dir.mkdir(parents=True, exist_ok=True)
-    paths.download_cache("1").write_text('{"product_id":1}', encoding="utf-8")
+    paths.download_cache("1").write_text(
+        json.dumps({"fetched_at": utc_timestamp(), "product_id": 1, "marker": "fresh"}),
+        encoding="utf-8",
+    )
 
     result = handle_refresh(_make_args(force=False))
+
     assert result == ExitCode.SUCCESS
+    assert json.loads(paths.download_cache("1").read_text())["marker"] == "fresh"
+
+
+@rsps_lib.activate
+def test_handle_refresh_refetches_download_cache_older_than_two_weeks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_library_and_downloads(tmp_path, monkeypatch)
+
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    paths.downloads_cache_dir.mkdir(parents=True, exist_ok=True)
+    paths.download_cache("1").write_text(
+        json.dumps({"fetched_at": "2000-01-01T00:00:00Z", "product_id": 1}),
+        encoding="utf-8",
+    )
+
+    result = handle_refresh(_make_args(force=False))
+
+    assert result == ExitCode.SUCCESS
+    refreshed = json.loads(paths.download_cache("1").read_text())
+    assert refreshed["data"] == _DOWNLOADS_1
 
 
 @rsps_lib.activate

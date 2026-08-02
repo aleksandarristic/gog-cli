@@ -80,3 +80,17 @@ def test_gog_error_message_goes_to_stderr(
     captured = capsys.readouterr()
     assert "unexpected response shape" in captured.err
     assert captured.out == ""
+
+
+def test_unhandled_oserror_becomes_filesystem_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def raise_oserror(_args: object) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli_module, "handle_list_purchased", raise_oserror)
+
+    result = main(["list", "purchased"])
+
+    assert result == ExitCode.FILESYSTEM
+    assert "Filesystem error: disk full" in capsys.readouterr().err

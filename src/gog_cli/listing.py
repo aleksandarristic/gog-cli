@@ -47,6 +47,7 @@ _PLATFORM_COLS: list[tuple[str, str]] = [("windows", "W"), ("mac", "M"), ("linux
 
 def handle_list_purchased(args: argparse.Namespace) -> int:
     paths = resolve_app_paths()
+    config = load_config(paths)
     try:
         cache = _load_library_cache(paths.library_cache)
     except StateFileMissingError:
@@ -60,7 +61,9 @@ def handle_list_purchased(args: argparse.Namespace) -> int:
     games = _apply_purchased_filters(games, args)
     games = _sort_purchased(games, getattr(args, "sort", None))
     fetched_at = cache.get("fetched_at", "")
-    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    output_format = OutputFormat(
+        getattr(args, "output_format", None) or config.output_format
+    )
 
     if output_format == OutputFormat.JSON:
         print_json(JsonEnvelope(command="list purchased", data=games))
@@ -146,7 +149,9 @@ def handle_list_backed_up(args: argparse.Namespace) -> int:
         print(f"Backup manifest is unreadable: {exc}", file=sys.stderr)
         return ExitCode.PARSER
 
-    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    output_format = OutputFormat(
+        getattr(args, "output_format", None) or config.output_format
+    )
     games = [_normalize_manifest_game(game) for game in manifest["games"]]
     games = _sort_backed_up(games, getattr(args, "sort", None))
 
@@ -483,6 +488,7 @@ def handle_search_catalog(args: argparse.Namespace) -> int:
     query = str(getattr(args, "query", "") or "").strip()
 
     paths = resolve_app_paths()
+    config = load_config(paths)
     owned_ids: set[int] | None = None
     try:
         cache = _load_library_cache(paths.library_cache)
@@ -499,7 +505,9 @@ def handle_search_catalog(args: argparse.Namespace) -> int:
     games = [_normalize_catalog_result(p, owned_ids) for p in raw.get("products", [])]
     games = _apply_catalog_filters(games, args)
 
-    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    output_format = OutputFormat(
+        getattr(args, "output_format", None) or config.output_format
+    )
     if output_format == OutputFormat.JSON:
         print_json(JsonEnvelope(command="search", data=games))
         return ExitCode.SUCCESS

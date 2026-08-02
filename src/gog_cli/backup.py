@@ -9,7 +9,7 @@ from typing import Literal
 
 from gog_cli.errors import UsageError
 from gog_cli.fuzzy import title_search_score
-from gog_cli.layout import BackupLayout, sanitize_filename
+from gog_cli.layout import BackupLayout, sanitize_directory_name, sanitize_filename
 from gog_cli.prompt import numbered_prompt
 
 ActionType = Literal["download", "skip", "verify", "conflict"]
@@ -76,6 +76,55 @@ def _role_dir(layout: BackupLayout, game_dir: Path, role: str) -> Path:
     return game_dir / subdir
 
 
+def build_game_directory_names(
+    games: list[dict],
+    *,
+    existing: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return stable directory names, disambiguating sanitized slug collisions."""
+    bases: dict[str, list[str]] = {}
+    game_bases: dict[str, str] = {}
+    for game in games:
+        product_id = _game_product_id(game)
+        base = sanitize_filename(str(game.get("slug") or product_id))
+        game_bases[product_id] = base
+        bases.setdefault(base, []).append(product_id)
+
+    names = {
+        product_id: (
+            sanitize_directory_name(base, product_id)
+            if len(bases[base]) > 1
+            else base
+        )
+        for product_id, base in game_bases.items()
+    }
+    for product_id, directory_name in (existing or {}).items():
+        if product_id in names:
+            names[product_id] = directory_name
+    return names
+
+
+def _game_directory_name(game: dict, game_directories: dict[str, str] | None) -> str:
+    product_id = _game_product_id(game)
+    if game_directories and product_id in game_directories:
+        return game_directories[product_id]
+    return build_game_directory_names([game])[product_id]
+
+
+def _claim_destination(
+    owners: dict[Path, FileSpec],
+    dest: Path,
+    spec: FileSpec,
+) -> None:
+    previous = owners.get(dest)
+    if previous is not None:
+        raise UsageError(
+            "Multiple source files map to the same backup path "
+            f"{dest}: {previous.source_id!r} and {spec.source_id!r}"
+        )
+    owners[dest] = spec
+
+
 def plan_backup(
     destination: Path,
     games: list[dict],
@@ -85,16 +134,20 @@ def plan_backup(
     platforms: list[str] | None = None,
     languages: list[str] | None = None,
     file_roles: list[str] | None = None,
+    game_directories: dict[str, str] | None = None,
 ) -> BackupPlan:
     planned: list[PlannedFile] = []
     product_ids: list[str] = []
     game_dirs: list[Path] = []
     disk_required_bytes = 0
+    destination_owners: dict[Path, FileSpec] = {}
+
+    if game_directories is None:
+        game_directories = build_game_directory_names(games)
 
     for game in games:
         product_id = _game_product_id(game)
-        slug = sanitize_filename(game.get("slug") or product_id)
-        game_dir = layout.game_dir(slug)
+        game_dir = layout.game_dir(_game_directory_name(game, game_directories))
         product_ids.append(product_id)
         game_dirs.append(game_dir)
 
@@ -118,6 +171,8 @@ def plan_backup(
                     spec=spec, dest=dest, action="skip", skip_reason="role_not_selected"
                 ))
                 continue
+
+            _claim_destination(destination_owners, dest, spec)
 
             if dest.exists():
                 planned.append(

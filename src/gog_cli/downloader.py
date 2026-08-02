@@ -60,9 +60,9 @@ class Downloader:
                     bytes_downloaded=actual_size,
                     expected_size=expected_size,
                 )
-            # File at dest doesn't match what we expect (e.g. it's a leftover from a
-            # colliding destination path or a stale partial run) — don't trust it blindly.
-            dest.unlink()
+            # Keep the existing file in place until its replacement has been fully
+            # downloaded and verified. os.replace() below swaps the completed temp
+            # file into place atomically.
 
         temp_path = dest.parent / f".{dest.name}.part"
         dest.parent.mkdir(parents=True, exist_ok=True)

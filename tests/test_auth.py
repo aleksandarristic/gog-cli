@@ -92,15 +92,33 @@ def test_load_tokens_checks_keyring_once_per_store(tmp_path: Path) -> None:
 
 def test_save_tokens_writes_json(tmp_path: Path) -> None:
     store = _make_store(tmp_path)
-    store.save_tokens(_SAMPLE_TOKENS)
+    with patch("gog_cli.auth._try_save_keyring", return_value=False):
+        store.save_tokens(_SAMPLE_TOKENS)
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     data = json.loads(paths.session_state.read_text())
     assert data["refresh_token"] == "ref"
 
 
+def test_save_tokens_omits_refresh_token_when_keyring_succeeds(tmp_path: Path) -> None:
+    store = _make_store(tmp_path)
+
+    with patch("gog_cli.auth._try_save_keyring", return_value=True):
+        store.save_tokens(_SAMPLE_TOKENS)
+
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    data = json.loads(paths.session_state.read_text())
+    assert data["access_token"] == "acc"
+    assert "refresh_token" not in data
+
+    reloaded = _make_store(tmp_path)
+    with patch("gog_cli.auth._try_load_keyring", return_value="ref"):
+        assert reloaded.load_tokens()["refresh_token"] == "ref"
+
+
 def test_save_tokens_sets_chmod_600(tmp_path: Path) -> None:
     store = _make_store(tmp_path)
-    store.save_tokens(_SAMPLE_TOKENS)
+    with patch("gog_cli.auth._try_save_keyring", return_value=True):
+        store.save_tokens(_SAMPLE_TOKENS)
     paths = resolve_app_paths({"HOME": str(tmp_path)})
     mode = oct(os.stat(paths.session_state).st_mode)[-3:]
     assert mode == "600"
@@ -112,7 +130,7 @@ def test_save_tokens_keyring_failure_is_silent(tmp_path: Path) -> None:
         pass
     # Directly call _try_save_keyring to confirm it swallows exceptions
     from gog_cli.auth import _try_save_keyring
-    _try_save_keyring("some_token")  # must not raise even without keyring installed
+    assert _try_save_keyring("some_token") is False
 
 
 # ── _extract_code ──────────────────────────────────────────────────────────────

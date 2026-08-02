@@ -50,30 +50,40 @@ class FileTokenStore:
             raise AuthError("Not logged in. Run: gog auth login") from None
         except StateFileCorruptError as exc:
             raise AuthError(f"Session file is corrupt: {exc}") from exc
+        if not isinstance(tokens, dict):
+            raise AuthError("Session file has an unsupported shape")
         if not self._keyring_checked:
             self._keyring_refresh_token = _try_load_keyring()
             self._keyring_checked = True
         if self._keyring_refresh_token:
             tokens["refresh_token"] = self._keyring_refresh_token
+        if not tokens.get("access_token") or not tokens.get("refresh_token"):
+            raise AuthError("Session credentials are incomplete. Run: gog auth login")
         return tokens
 
     def save_tokens(self, tokens: dict) -> None:
+        refresh_token = tokens.get("refresh_token", "")
+        stored_in_keyring = _try_save_keyring(refresh_token)
+        session_tokens = dict(tokens)
+        if stored_in_keyring:
+            session_tokens.pop("refresh_token", None)
         try:
-            write_json_file_atomic(self._paths.session_state, tokens)
+            write_json_file_atomic(self._paths.session_state, session_tokens)
             os.chmod(self._paths.session_state, 0o600)
         except OSError as exc:
             raise FilesystemError(f"Failed to write session: {exc}") from exc
         self._keyring_checked = True
-        self._keyring_refresh_token = tokens.get("refresh_token") or None
-        _try_save_keyring(tokens.get("refresh_token", ""))
+        self._keyring_refresh_token = refresh_token or None
 
 
-def _try_save_keyring(refresh_token: str) -> None:
+def _try_save_keyring(refresh_token: str) -> bool:
     try:
         import keyring  # noqa: PLC0415
         keyring.set_password("gog-cli", "refresh_token", refresh_token)
+        return True
     except Exception:  # noqa: BLE001
         _log.warning("keyring write failed — using file-only token storage")
+        return False
 
 
 def _try_load_keyring() -> str | None:

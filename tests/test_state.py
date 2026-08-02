@@ -103,6 +103,16 @@ def test_read_cache_file_marks_recent_cache_fresh(tmp_path) -> None:
     assert result.data["updated_at"] == "2026-06-25T11:30:00Z"
 
 
+def test_read_cache_file_accepts_fetched_at_timestamp(tmp_path) -> None:
+    target = tmp_path / "downloads.json"
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+    write_json_file_atomic(target, {"fetched_at": "2026-06-20T12:00:00Z"})
+
+    result = read_cache_file(target, max_age=timedelta(weeks=2), now=now)
+
+    assert result.status == "fresh"
+
+
 def test_read_cache_file_marks_old_or_unknown_cache_stale(tmp_path) -> None:
     now = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
     old_cache = tmp_path / "old.json"

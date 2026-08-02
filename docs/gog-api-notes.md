@@ -527,14 +527,14 @@ future path for incremental sync support.
 ### Authentication
 
 Authentication uses the known `client_id`, `client_secret`, and `redirect_uri`.
-The login URL is constructed and opened in a browser; for headless use, it is
+The login URL is printed for the user to open in a browser; for headless use, it is
 printed for the user to open manually. The resulting authorization code is
 exchanged for tokens via `GET https://auth.gog.com/token`. The `refresh_token`
-is stored in the OS keyring; the expiry timestamp and `user_id` are stored in
-non-secret session state. The access token is refreshed automatically when
-expired. On refresh failure, the session is marked expired and the user is
-prompted to run `gog auth login`. The `access_token` and `refresh_token` are
-not stored in manifests, caches, or config files, and are not logged.
+is stored in the OS keyring when available; otherwise it falls back to the
+mode-`0600` session file with a warning. When keyring storage succeeds, the
+refresh token is omitted from that file. The access token, expiry timestamp,
+and user ID are stored in session state. Tokens are not stored in backup
+manifests, download caches, or config files, and are not logged.
 
 ### Library Discovery and Refresh
 

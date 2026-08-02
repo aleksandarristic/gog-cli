@@ -9,7 +9,7 @@ from pathlib import Path
 
 from gog_cli import __version__
 from gog_cli.auth import handle_auth_login, handle_auth_logout, handle_auth_status
-from gog_cli.errors import GogError
+from gog_cli.errors import ExitCode, GogError
 from gog_cli.execution import handle_backup, handle_plan, handle_sync
 from gog_cli.listing import handle_list_backed_up, handle_list_purchased, handle_search_catalog
 from gog_cli.refresh import handle_refresh
@@ -171,7 +171,7 @@ def _add_refresh_parser(subcommands: argparse._SubParsersAction) -> None:  # typ
     refresh.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -207,7 +207,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     purchased.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -272,7 +272,7 @@ def _add_list_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     backed_up.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -300,7 +300,7 @@ def _add_search_parser(subcommands: argparse._SubParsersAction) -> None:  # type
     search.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -470,7 +470,7 @@ def _add_backup_parser(subcommands: argparse._SubParsersAction) -> None:  # type
     backup.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -533,7 +533,7 @@ def _add_plan_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
     plan.add_argument(
         "-f", "--format",
         choices=["human", "json"],
-        default="human",
+        default=None,
         dest="output_format",
         help="Output format (default: human).",
     )
@@ -591,6 +591,13 @@ def _add_sync_parser(subcommands: argparse._SubParsersAction) -> None:  # type: 
         action="store_true",
         help="Show the plan without downloading files.",
     )
+    sync.add_argument(
+        "-f", "--format",
+        choices=["human", "json"],
+        default=None,
+        dest="output_format",
+        help="Output format (default: from config, otherwise human).",
+    )
     _add_selector_flags(sync)
     _add_interaction_flags(sync)
     sync.set_defaults(handler=handle_sync)
@@ -639,6 +646,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except GogError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
+    except OSError as exc:
+        print(f"Filesystem error: {exc}", file=sys.stderr)
+        return ExitCode.FILESYSTEM
 
 
 if __name__ == "__main__":

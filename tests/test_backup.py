@@ -124,6 +124,40 @@ def test_plan_backup_download(tmp_path: Path) -> None:
     assert plan.disk_required_bytes == 1000
 
 
+def test_plan_backup_disambiguates_sanitized_game_directory_collisions(
+    tmp_path: Path,
+) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [
+        {"id": 1111, "title": "Colon", "slug": "a:b"},
+        {"id": 2222, "title": "Question", "slug": "a?b"},
+    ]
+    specs = {
+        "1111": [make_spec(source_id="one")],
+        "2222": [make_spec(source_id="two")],
+    }
+
+    plan = plan_backup(tmp_path, games, specs, layout)
+
+    game_directories = {
+        planned.dest.relative_to(layout.games_dir).parts[0]
+        for planned in plan.downloads
+    }
+    assert game_directories == {"a_b_1111", "a_b_2222"}
+
+
+def test_plan_backup_rejects_file_destination_collisions(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    first = make_spec(source_id="one")
+    second = make_spec(source_id="two")
+    first.filename = "setup.exe"
+    second.filename = "setup.exe"
+
+    with pytest.raises(UsageError, match="same backup path"):
+        plan_backup(tmp_path, games, {"1111": [first, second]}, layout)
+
+
 def test_plan_backup_skip_existing(tmp_path: Path) -> None:
     layout = BackupLayout(root=tmp_path)
     games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]

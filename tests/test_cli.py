@@ -1312,6 +1312,81 @@ def test_backup_all_yes_downloads_and_writes_manifest(
 
 
 @rsps_lib.activate
+def test_backup_execution_json_format_is_single_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
+    _mock_download("https://api.gog.com/products/2222/downlink/installer/setup_cyberpunk")
+
+    result = main([
+        "backup",
+        "--destination",
+        str(destination),
+        "--all",
+        "--yes",
+        "--format",
+        "json",
+    ])
+
+    assert result == ExitCode.SUCCESS
+    output = json.loads(capsys.readouterr().out)
+    assert output["command"] == "backup"
+    assert len(output["data"]) == 2
+
+
+def test_backup_format_config_and_cli_precedence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    paths.config_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.config_file.write_text('[defaults]\nformat = "json"\n', encoding="utf-8")
+
+    assert main(["backup", "--all"]) == ExitCode.SUCCESS
+    assert json.loads(capsys.readouterr().out)["command"] == "backup plan"
+
+    assert main(["backup", "--all", "--format", "human"]) == ExitCode.SUCCESS
+    assert "Backup plan" in capsys.readouterr().out
+
+
+def test_list_format_uses_config_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    paths.config_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.config_file.write_text('[defaults]\nformat = "json"\n', encoding="utf-8")
+
+    assert main(["list"]) == ExitCode.SUCCESS
+
+    assert json.loads(capsys.readouterr().out)["command"] == "list purchased"
+
+
+def test_interactive_false_config_disables_selection_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    paths.config_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.config_file.write_text('[defaults]\ninteractive = false\n', encoding="utf-8")
+    monkeypatch.setattr("gog_cli.execution.is_interactive", lambda: True)
+
+    assert main(["backup"]) == ExitCode.USAGE
+    assert "No games selected" in capsys.readouterr().err
+
+
+@rsps_lib.activate
 def test_backup_auto_selects_aria2c_when_available(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1400,6 +1475,44 @@ def test_backup_falls_back_to_header_filename(
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
     assert (destination / "games" / "witcher_3" / "installers" / "setup_from_header.exe").exists()
+
+
+@rsps_lib.activate
+def test_backup_rejects_colliding_header_filenames(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3"}],
+    )
+    _seed_download_cache(
+        tmp_path,
+        1111,
+        [
+            _download_entry("part_one", name=None),
+            _download_entry("part_two", name=None),
+        ],
+    )
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part_one",
+        header_filename="setup.exe",
+    )
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part_two",
+        header_filename="setup.exe",
+    )
+
+    result = main(["backup", "--destination", str(destination), "--all", "--yes"])
+
+    assert result == ExitCode.FAILURE
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    statuses = {record["status"] for record in manifest["games"][0]["files"]}
+    assert statuses == {"failed", "verified"}
+    assert sum(1 for path in destination.rglob("setup.exe")) == 1
 
 
 @rsps_lib.activate
@@ -1505,7 +1618,10 @@ def test_backup_existing_file_size_mismatch_fails(
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"wrong-size")
 
-    assert main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 1
+    assert (
+        main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"])
+        == ExitCode.VERIFICATION
+    )
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     assert manifest["games"][0]["files"][0]["failure"]["code"] == "size_mismatch"
 
@@ -1561,6 +1677,29 @@ def test_sync_verifies_unverified_existing_file(
     assert main(["sync", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     assert manifest["games"][0]["files"][0]["status"] == "verified"
+
+
+def test_sync_dry_run_json_format_is_single_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_manifest(destination, [_manifest_game()])
+
+    result = main([
+        "sync",
+        "--destination",
+        str(destination),
+        "--all",
+        "--format",
+        "json",
+    ])
+
+    assert result == ExitCode.SUCCESS
+    output = json.loads(capsys.readouterr().out)
+    assert output["command"] == "sync plan"
 
 
 @rsps_lib.activate

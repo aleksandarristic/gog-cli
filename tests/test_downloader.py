@@ -112,6 +112,21 @@ def test_dest_exists_with_wrong_size_is_redownloaded(tmp_path) -> None:
 
 
 @responses.activate
+def test_failed_replacement_preserves_existing_file(tmp_path) -> None:
+    import requests as req_lib
+
+    dest = tmp_path / "installer.exe"
+    original = b"previous working installer"
+    dest.write_bytes(original)
+    responses.get(_URL, body=req_lib.exceptions.ConnectionError("connection refused"))
+
+    result = make_downloader().download(_URL, dest, expected_size=_SIZE)
+
+    assert result.status == "failed"
+    assert dest.read_bytes() == original
+
+
+@responses.activate
 def test_size_mismatch_accepted_when_not_strict(tmp_path) -> None:
     responses.get(_URL, body=_CONTENT, status=200)
 

@@ -59,8 +59,9 @@ def _make_aria2c_success(dest: Path, content: bytes = b"data") -> MagicMock:
     """Return a mock subprocess.run that writes content to dest on call."""
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(content)
+        output = Path(cmd[cmd.index("--dir") + 1]) / cmd[cmd.index("--out") + 1]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     return MagicMock(side_effect=side_effect)
@@ -116,6 +117,25 @@ def test_download_redownloads_when_existing_size_mismatches(tmp_path: Path) -> N
     mock_run.assert_called_once()
     assert result.status == "verified"
     assert dest.read_bytes() == content
+    assert not (tmp_path / ".setup.exe.part").exists()
+
+
+def test_failed_replacement_preserves_existing_file(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    original = b"previous working installer"
+    dest.write_bytes(original)
+    mock_run = MagicMock(return_value=MagicMock(returncode=1))
+
+    with patch("subprocess.run", mock_run):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=999,
+        )
+
+    assert result.status == "failed"
+    assert dest.read_bytes() == original
 
 
 def test_download_size_mismatch_accepted_when_not_strict(tmp_path: Path) -> None:

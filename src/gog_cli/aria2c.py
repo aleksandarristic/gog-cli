@@ -92,6 +92,8 @@ def download_via_aria2c(
     log = logger or logging.getLogger(__name__)
 
     aria2_control = Path(str(dest) + ".aria2")
+    download_path = dest
+    replacing_existing = False
     if dest.exists() and not aria2_control.exists():
         actual_size = dest.stat().st_size
         if expected_size is None or actual_size == expected_size:
@@ -101,9 +103,11 @@ def download_via_aria2c(
                 bytes_downloaded=actual_size,
                 expected_size=expected_size,
             )
-        # File at dest doesn't match what we expect (e.g. a colliding destination path
-        # or a stale leftover) — don't trust it blindly, let aria2c fetch it fresh.
-        dest.unlink()
+        # Preserve the existing file until its replacement has downloaded and passed
+        # verification. The hidden part file also lets an interrupted replacement
+        # resume without exposing incomplete bytes at the final destination.
+        download_path = dest.parent / f".{dest.name}.part"
+        replacing_existing = True
 
     binary = aria2c_path or check_aria2c()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -122,9 +126,9 @@ def download_via_aria2c(
             "--input-file",
             input_file,
             "--dir",
-            str(dest.parent),
+            str(download_path.parent),
             "--out",
-            dest.name,
+            download_path.name,
             "--auto-file-renaming=false",
             "--continue=true",
             f"--split={split}",
@@ -144,6 +148,8 @@ def download_via_aria2c(
         if result.returncode != 0:
             return DownloadResult(
                 status="failed",
+                path=dest if dest.exists() else None,
+                temp_path=download_path if download_path.exists() else None,
                 expected_size=expected_size,
                 failure_code="aria2c_error",
                 failure_message=f"aria2c exited with code {result.returncode}",
@@ -153,21 +159,23 @@ def download_via_aria2c(
         with contextlib.suppress(FileNotFoundError):
             os.unlink(input_file)
 
-    if not dest.exists():
+    if not download_path.exists():
         return DownloadResult(
             status="failed",
+            path=dest if dest.exists() else None,
             expected_size=expected_size,
             failure_code="aria2c_error",
             failure_message="aria2c reported success but output file is missing",
         )
 
-    actual_size = dest.stat().st_size
+    actual_size = download_path.stat().st_size
 
     if expected_size is not None and actual_size != expected_size:
         if strict_size:
             return DownloadResult(
                 status="failed",
-                path=dest,
+                path=dest if dest.exists() else None,
+                temp_path=download_path,
                 expected_size=expected_size,
                 failure_code="size_mismatch",
                 failure_message=f"Expected {expected_size} bytes, got {actual_size}",
@@ -178,16 +186,20 @@ def download_via_aria2c(
 
     checksum_verified = False
     if expected_md5 is not None:
-        actual_md5 = _md5_file(dest)
+        actual_md5 = _md5_file(download_path)
         if actual_md5 != expected_md5.lower():
             return DownloadResult(
                 status="failed",
-                path=dest,
+                path=dest if dest.exists() else None,
+                temp_path=download_path,
                 expected_size=expected_size,
                 failure_code="checksum_mismatch",
                 failure_message="MD5 checksum did not match expected value",
             )
         checksum_verified = True
+
+    if replacing_existing:
+        os.replace(download_path, dest)
 
     return DownloadResult(
         status="verified",

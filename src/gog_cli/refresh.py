@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from gog_cli import log
 from gog_cli.api import GogApiClient
 from gog_cli.auth import FileTokenStore
+from gog_cli.config import load_config
 from gog_cli.errors import ExitCode, NetworkError
 from gog_cli.metadata import (
     extract_download_summary,
@@ -19,7 +21,9 @@ from gog_cli.metadata import (
 )
 from gog_cli.output import JsonEnvelope, OutputFormat, print_human, print_json
 from gog_cli.state import (
+    StateError,
     StateFileMissingError,
+    read_cache_file,
     read_json_file,
     resolve_app_paths,
     utc_timestamp,
@@ -27,6 +31,8 @@ from gog_cli.state import (
 )
 
 _log = log.get_logger(__name__)
+
+_DOWNLOAD_CACHE_MAX_AGE = timedelta(weeks=2)
 
 
 def _normalize_game(product: dict) -> dict:
@@ -96,13 +102,16 @@ def _load_old_games(library_cache: Path) -> list[dict]:
 
 def handle_refresh(args: argparse.Namespace) -> int:
     paths = resolve_app_paths()
+    config = load_config(paths)
     store = FileTokenStore(paths)
     client = GogApiClient(store)
 
     # load tokens early so AuthError surfaces before any network calls
     store.load_tokens()
 
-    output_format = OutputFormat(getattr(args, "output_format", "human"))
+    output_format = OutputFormat(
+        getattr(args, "output_format", None) or config.output_format
+    )
     force = getattr(args, "force", False)
 
     old_games = _load_old_games(paths.library_cache)
@@ -120,7 +129,7 @@ def handle_refresh(args: argparse.Namespace) -> int:
         cache_path = paths.download_cache(str(product_id))
         title = str(game.get("title") or product_id)
 
-        if not force and cache_path.exists():
+        if not force and _download_cache_is_fresh(cache_path):
             _enrich_game_from_download_cache(game, cache_path)
             _print_metadata_progress(progress, index, total_games, title, cached=True)
             continue
@@ -181,6 +190,16 @@ def handle_refresh(args: argparse.Namespace) -> int:
     if failures:
         return ExitCode.NETWORK
     return ExitCode.SUCCESS
+
+
+def _download_cache_is_fresh(cache_path: Path) -> bool:
+    try:
+        return read_cache_file(
+            cache_path,
+            max_age=_DOWNLOAD_CACHE_MAX_AGE,
+        ).status == "fresh"
+    except StateError:
+        return False
 
 
 def _print_progress(enabled: bool, message: str) -> None:
