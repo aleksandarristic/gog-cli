@@ -101,7 +101,7 @@ dependencies = [
     { name = "requests" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "responses" },
@@ -109,13 +109,14 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "requests", specifier = ">=2.32" },
-    { name = "responses", marker = "extra == 'dev'", specifier = ">=0.25" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
+requires-dist = [{ name = "requests", specifier = ">=2.32" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "responses", specifier = ">=0.25" },
+    { name = "ruff", specifier = ">=0.4" },
 ]
-provides-extras = ["dev"]
 
 [[package]]
 name = "idna"

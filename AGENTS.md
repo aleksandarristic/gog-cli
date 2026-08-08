@@ -23,11 +23,20 @@
 - If present, `.agent-env.local.md` is a gitignored environment note for quick
   orientation. Treat it as a cache only; verify relevant commands before relying
   on it.
+- Python is managed with `uv`. The project pins Python in `.python-version`,
+  declares dependencies in `pyproject.toml`, and commits the resolved dependency
+  graph in `uv.lock`. Do not introduce `requirements.txt`; use `uv add` or
+  `uv add --dev` for dependency changes.
+- Inside a restricted Codex sandbox, prefix `uv` commands with
+  `UV_CACHE_DIR=.uv-cache` so uv does not try to write under the user's home
+  directory.
 
 ## Commands
-- Run tests with `./.venv/bin/pytest` (or `python -m pytest` if the venv is active).
-- Run linting with `./.venv/bin/ruff check src/ tests/`.
-- Run the CLI locally with `python -m gog_cli.cli --help` or the installed `gog` console script.
+- Sync dependencies with `UV_CACHE_DIR=.uv-cache uv sync`.
+- Run tests with `UV_CACHE_DIR=.uv-cache uv run pytest`.
+- Run linting with `UV_CACHE_DIR=.uv-cache uv run ruff check src/ tests/`.
+- Run the CLI locally with `UV_CACHE_DIR=.uv-cache uv run gog --help` or
+  `UV_CACHE_DIR=.uv-cache uv run python -m gog_cli.cli --help`.
 
 ## Branch and remote hygiene
 
