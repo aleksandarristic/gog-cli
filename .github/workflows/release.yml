@@ -17,10 +17,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v5
+
       - name: Build wheel and sdist
-        run: |
-          pip install build
-          python -m build
+        run: uv build
 
       - uses: actions/upload-artifact@v4
         with:

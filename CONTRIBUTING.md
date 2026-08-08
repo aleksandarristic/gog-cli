@@ -29,8 +29,8 @@ A PR is required for anything non-trivial going into `main`. Use your judgement 
 - Version bumps
 
 **PR checklist:**
-- Tests pass (`python -m pytest`)
-- Linting passes (`ruff check src/ tests/`)
+- Tests pass (`uv run pytest`)
+- Linting passes (`uv run ruff check src/ tests/`)
 - Description explains *why*, not just *what*
 - One logical change per PR (split unrelated changes)
 
@@ -60,7 +60,7 @@ This project follows [Semantic Versioning](https://semver.org/) with a `0.x` pre
 ## Running tests
 
 ```sh
-python -m pytest
+uv run pytest
 ```
 
 ## Code style
@@ -68,7 +68,7 @@ python -m pytest
 Linting is enforced with [Ruff](https://docs.astral.sh/ruff/):
 
 ```sh
-ruff check src/ tests/
+uv run ruff check src/ tests/
 ```
 
 ## Setting up a development environment
@@ -78,8 +78,6 @@ Requires Python 3.12 or newer.
 ```sh
 git clone https://github.com/aleksandarristic/gog-cli.git
 cd gog-cli
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-python -m pytest
+uv sync
+uv run pytest
 ```

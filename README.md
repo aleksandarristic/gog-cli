@@ -44,19 +44,18 @@ pip install git+https://github.com/aleksandarristic/gog-cli.git
 ## Development
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e ".[dev]"
-python -m pytest
+uv sync
+uv run pytest
+uv run ruff check src/ tests/
 ```
 
 Run the CLI locally:
 
 ```sh
-gog --help
-gog list
-gog plan --all --summary
-gog dl --games-from games.txt --dry-run
+uv run gog --help
+uv run gog list
+uv run gog plan --all --summary
+uv run gog dl --games-from games.txt --dry-run
 ```
 
 ## Roadmap
