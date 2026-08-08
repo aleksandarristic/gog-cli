@@ -80,24 +80,28 @@ def test_download_success(tmp_path: Path) -> None:
             expected_size=len(content),
         )
 
-    assert result.status == "verified"
+    assert result.status == "downloaded"
     assert result.path == dest
     assert result.bytes_downloaded == len(content)
 
 
 def test_download_skips_existing(tmp_path: Path) -> None:
     dest = tmp_path / "setup.exe"
-    dest.write_bytes(b"existing")
+    content = b"existing"
+    dest.write_bytes(content)
+    md5 = hashlib.md5(content).hexdigest()  # noqa: S324
 
     with patch("subprocess.run") as mock_run:
         result = download_via_aria2c(
             url="https://cdn.example.com/setup.exe",
             dest=dest,
             aria2c_path=Path("/usr/bin/aria2c"),
+            expected_md5=md5,
         )
 
     mock_run.assert_not_called()
     assert result.status == "skipped"
+    assert result.checksum_verified is True
 
 
 def test_download_redownloads_when_existing_size_mismatches(tmp_path: Path) -> None:
@@ -115,9 +119,30 @@ def test_download_redownloads_when_existing_size_mismatches(tmp_path: Path) -> N
         )
 
     mock_run.assert_called_once()
-    assert result.status == "verified"
+    assert result.status == "downloaded"
     assert dest.read_bytes() == content
     assert not (tmp_path / ".setup.exe.part").exists()
+
+
+def test_download_redownloads_same_size_file_with_wrong_checksum(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    content = b"real content"
+    dest.write_bytes(b"stale bytes!")
+    md5 = hashlib.md5(content).hexdigest()  # noqa: S324
+    mock_run = _make_aria2c_success(dest, content)
+
+    with patch("subprocess.run", mock_run):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=len(content),
+            expected_md5=md5,
+        )
+
+    mock_run.assert_called_once()
+    assert result.status == "verified"
+    assert dest.read_bytes() == content
 
 
 def test_failed_replacement_preserves_existing_file(tmp_path: Path) -> None:
@@ -151,7 +176,7 @@ def test_download_size_mismatch_accepted_when_not_strict(tmp_path: Path) -> None
             strict_size=False,
         )
 
-    assert result.status == "verified"
+    assert result.status == "downloaded"
     assert result.expected_size == len(content)
 
 
