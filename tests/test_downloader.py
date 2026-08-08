@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
 import responses
 
-from gog_cli.downloader import Downloader, fetch_checksum_xml
+from gog_cli.downloader import (
+    ChecksumFetchError,
+    ChecksumParseError,
+    Downloader,
+    fetch_checksum_xml,
+)
 
 _URL = "https://cdn.example.com/game/installer.exe"
 _CHECKSUM_URL = "https://cdn.example.com/game/installer.exe.xml"
@@ -87,14 +93,15 @@ def test_oversized_temp_deleted_before_fresh_download(tmp_path) -> None:
     assert dest.read_bytes() == _CONTENT
 
 
-def test_dest_already_exists_returns_skipped(tmp_path) -> None:
+def test_dest_with_matching_checksum_returns_skipped(tmp_path) -> None:
     dest = tmp_path / "installer.exe"
     dest.write_bytes(_CONTENT)
 
-    result = make_downloader().download(_URL, dest, expected_size=_SIZE)
+    result = make_downloader().download(_URL, dest, expected_size=_SIZE, expected_md5=_MD5)
 
     assert result.status == "skipped"
     assert result.path == dest
+    assert result.checksum_verified is True
 
 
 @responses.activate
@@ -103,6 +110,18 @@ def test_dest_exists_with_wrong_size_is_redownloaded(tmp_path) -> None:
     # there is actually a different file's content, so it must not be trusted as-is.
     dest = tmp_path / "installer.exe"
     dest.write_bytes(b"wrong content entirely")
+    responses.get(_URL, body=_CONTENT, status=200)
+
+    result = make_downloader().download(_URL, dest, expected_size=_SIZE, expected_md5=_MD5)
+
+    assert result.status == "verified"
+    assert dest.read_bytes() == _CONTENT
+
+
+@responses.activate
+def test_dest_with_same_size_but_wrong_checksum_is_redownloaded(tmp_path) -> None:
+    dest = tmp_path / "installer.exe"
+    dest.write_bytes(b"B" * _SIZE)
     responses.get(_URL, body=_CONTENT, status=200)
 
     result = make_downloader().download(_URL, dest, expected_size=_SIZE, expected_md5=_MD5)
@@ -135,7 +154,7 @@ def test_size_mismatch_accepted_when_not_strict(tmp_path) -> None:
         _URL, dest, expected_size=_SIZE + 100, strict_size=False
     )
 
-    assert result.status == "verified"
+    assert result.status == "downloaded"
     assert result.expected_size == _SIZE
     assert dest.read_bytes() == _CONTENT
 
@@ -210,26 +229,22 @@ def test_fetch_checksum_xml_happy_path() -> None:
 
 
 @responses.activate
-def test_fetch_checksum_xml_bad_xml_returns_none() -> None:
+def test_fetch_checksum_xml_bad_xml_raises_parse_error() -> None:
     import requests
 
     responses.get(_CHECKSUM_URL, body="not xml at all <<<", status=200)
 
     session = requests.Session()
-    md5, size = fetch_checksum_xml(session, _CHECKSUM_URL)
-
-    assert md5 is None
-    assert size is None
+    with pytest.raises(ChecksumParseError, match="invalid"):
+        fetch_checksum_xml(session, _CHECKSUM_URL)
 
 
 @responses.activate
-def test_fetch_checksum_xml_network_error_returns_none() -> None:
+def test_fetch_checksum_xml_network_error_raises_fetch_error() -> None:
     import requests
 
     responses.get(_CHECKSUM_URL, body=Exception("timeout"))
 
     session = requests.Session()
-    md5, size = fetch_checksum_xml(session, _CHECKSUM_URL)
-
-    assert md5 is None
-    assert size is None
+    with pytest.raises(ChecksumFetchError, match="fetch"):
+        fetch_checksum_xml(session, _CHECKSUM_URL)

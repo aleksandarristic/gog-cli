@@ -90,6 +90,16 @@ def test_compare_stale_checksum_changed() -> None:
     assert result.stale_reason == "checksum_changed"
 
 
+def test_compare_current_when_source_checksum_is_unknown() -> None:
+    spec = make_spec(md5=None)
+    record = current_record(spec, "verified")
+    record["expected_md5"] = "abc123"
+
+    result = compare_file(spec, record)
+
+    assert result.status == "current"
+
+
 def test_compare_partial_when_partial_status() -> None:
     spec = make_spec()
     record = current_record(spec, "partial")

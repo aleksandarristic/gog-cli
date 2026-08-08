@@ -28,7 +28,13 @@ from gog_cli.backup import (
     select_games,
 )
 from gog_cli.config import load_config
-from gog_cli.downloader import Downloader, DownloadResult, fetch_checksum_xml
+from gog_cli.downloader import (
+    ChecksumFetchError,
+    ChecksumParseError,
+    Downloader,
+    DownloadResult,
+    fetch_checksum_xml,
+)
 from gog_cli.errors import (
     AuthError,
     CacheError,
@@ -112,7 +118,10 @@ def handle_backup(args: argparse.Namespace) -> int:
         return ExitCode.SUCCESS
 
     files_to_process = [
-        file for file in plan.planned if file.action in ("download", "verify", "skip")
+        file
+        for file in plan.planned
+        if file.action in {"download", "verify"}
+        or file.skip_reason == "already_exists"
     ]
     return _execute_files("backup", context, selected, files_to_process)
 
@@ -398,15 +407,6 @@ def _execute_files(
 
     for planned in files_to_process:
         game = file_to_game.get(str(planned.dest), {})
-        if planned.action in {"skip", "verify"}:
-            collision = _claim_runtime_destination(claimed_destinations, planned)
-            if collision is not None:
-                results.append(_record_and_report(context, command, game, planned, collision))
-                continue
-            result = _verify_existing(planned)
-            results.append(_record_and_report(context, command, game, planned, result))
-            continue
-
         try:
             signed_url, checksum_url = context.client.resolve_downlink_url(
                 planned.spec.downlink_url
@@ -429,14 +429,40 @@ def _execute_files(
             results.append(_record_and_report(context, command, game, planned, result))
             continue
 
-        _apply_header_filename(session, signed_url, planned)
+        if planned.action == "download":
+            _apply_header_filename(session, signed_url, planned)
         collision = _claim_runtime_destination(claimed_destinations, planned)
         if collision is not None:
             results.append(_record_and_report(context, command, game, planned, collision))
             continue
-        expected_md5, expected_size = _resolve_checksum(session, checksum_url, planned.spec)
+        try:
+            expected_md5, expected_size = _resolve_checksum(session, checksum_url, planned.spec)
+        except ChecksumFetchError as exc:
+            result = DownloadResult(
+                status="failed",
+                path=planned.dest,
+                expected_size=planned.spec.expected_size,
+                failure_code="checksum_fetch_failed",
+                failure_message=str(exc),
+            )
+            results.append(_record_and_report(context, command, game, planned, result))
+            continue
+        except ChecksumParseError as exc:
+            result = DownloadResult(
+                status="failed",
+                path=planned.dest,
+                expected_size=planned.spec.expected_size,
+                failure_code="checksum_metadata_invalid",
+                failure_message=str(exc),
+            )
+            results.append(_record_and_report(context, command, game, planned, result))
+            continue
         planned.spec.expected_md5 = expected_md5
         planned.spec.expected_size = expected_size
+        if planned.action in {"skip", "verify"}:
+            result = _verify_existing(planned)
+            results.append(_record_and_report(context, command, game, planned, result))
+            continue
         strict_size = not (planned.spec.role in _LENIENT_SIZE_ROLES and expected_md5 is None)
         result = _download(
             context.downloader,
@@ -463,9 +489,9 @@ def _execute_files(
     failed = [item for item in results if item.result.status in {"failed", "partial"}]
     if failed:
         failure_codes = {item.result.failure_code for item in failed}
-        if failure_codes & {"checksum_mismatch", "size_mismatch"}:
+        if failure_codes & {"checksum_mismatch", "size_mismatch", "checksum_metadata_invalid"}:
             return ExitCode.VERIFICATION
-        if failure_codes & {"network_error", "resolve_failed"}:
+        if failure_codes & {"network_error", "resolve_failed", "checksum_fetch_failed"}:
             return ExitCode.NETWORK
         return ExitCode.FAILURE
     return ExitCode.SUCCESS
@@ -528,7 +554,7 @@ def _verify_existing(planned: PlannedFile) -> DownloadResult:
             failure_message="MD5 checksum did not match expected value",
         )
     return DownloadResult(
-        status="verified",
+        status="verified" if planned.spec.expected_md5 is not None else "downloaded",
         path=planned.dest,
         bytes_downloaded=planned.dest.stat().st_size,
         expected_size=planned.spec.expected_size,
