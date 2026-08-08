@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+from hashlib import md5
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1305,7 +1306,7 @@ def test_backup_all_yes_downloads_and_writes_manifest(
     backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
     assert backed_up.read_bytes() == b"data"
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
-    assert manifest["games"][0]["files"][0]["status"] == "verified"
+    assert manifest["games"][0]["files"][0]["status"] == "downloaded"
     assert manifest["backup_root_marker"].startswith("gog-cli-backup:")
     assert "checksum" in manifest["games"][0]["files"][0]
     assert "https://cdn.gog.com" not in BackupLayout(destination).manifest_file.read_text()
@@ -1511,7 +1512,7 @@ def test_backup_rejects_colliding_header_filenames(
     assert result == ExitCode.FAILURE
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     statuses = {record["status"] for record in manifest["games"][0]["files"]}
-    assert statuses == {"failed", "verified"}
+    assert statuses == {"downloaded", "failed"}
     assert sum(1 for path in destination.rglob("setup.exe")) == 1
 
 
@@ -1558,7 +1559,7 @@ def test_backup_multi_file_installer_without_file_ids_downloads_all_parts(
         "installer:windows:en:installer_witcher#0",
         "installer:windows:en:installer_witcher#1",
     }
-    assert all(f["status"] == "verified" for f in files)
+    assert all(f["status"] == "downloaded" for f in files)
 
 
 @rsps_lib.activate
@@ -1587,11 +1588,12 @@ def test_backup_bonus_content_size_mismatch_without_checksum_is_accepted(
 
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     file_record = manifest["games"][0]["files"][0]
-    assert file_record["status"] == "verified"
+    assert file_record["status"] == "downloaded"
     assert file_record["expected_size"] == len(b"data")
 
 
-def test_backup_adopts_existing_file(
+@rsps_lib.activate
+def test_backup_adopts_existing_file_without_checksum_as_downloaded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1601,12 +1603,14 @@ def test_backup_adopts_existing_file(
     existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"data")
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
 
     assert main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
-    assert manifest["games"][0]["files"][0]["status"] == "verified"
+    assert manifest["games"][0]["files"][0]["status"] == "downloaded"
 
 
+@rsps_lib.activate
 def test_backup_existing_file_size_mismatch_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1617,6 +1621,7 @@ def test_backup_existing_file_size_mismatch_fails(
     existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"wrong-size")
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
 
     assert (
         main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"])
@@ -1624,6 +1629,31 @@ def test_backup_existing_file_size_mismatch_fails(
     )
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     assert manifest["games"][0]["files"][0]["failure"]["code"] == "size_mismatch"
+
+
+@rsps_lib.activate
+def test_backup_surfaces_invalid_checksum_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _seed_backup_state(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+    downlink_url = "https://api.gog.com/products/1111/downlink/installer/setup_witcher"
+    checksum_url = "https://cdn.gog.com/setup.exe.xml?token=secret"
+    rsps_lib.add(
+        rsps_lib.GET,
+        downlink_url,
+        json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": checksum_url},
+    )
+    rsps_lib.add(rsps_lib.GET, checksum_url, body="not valid xml")
+
+    result = main(["backup", "--destination", str(destination), "--game", "witcher_3", "--yes"])
+
+    assert result == ExitCode.VERIFICATION
+
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["failure"]["code"] == "checksum_metadata_invalid"
 
 
 @rsps_lib.activate
@@ -1662,7 +1692,48 @@ def test_sync_all_yes_downloads_only_stale_files(
     assert stale_file.read_bytes() == b"data"
 
 
-def test_sync_verifies_unverified_existing_file(
+@rsps_lib.activate
+def test_sync_replaces_same_size_stale_file_when_checksum_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "backups"
+    _set_home(monkeypatch, tmp_path)
+    _seed_session(tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache(tmp_path, 1111, [_download_entry("setup_witcher", version="2.0")])
+    _seed_manifest(destination, [_manifest_game(version="1.0")])
+    stale_file = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    stale_file.parent.mkdir(parents=True)
+    stale_file.write_bytes(b"old!")
+    downlink_url = "https://api.gog.com/products/1111/downlink/installer/setup_witcher"
+    checksum_url = "https://cdn.gog.com/setup.exe.xml?token=secret"
+    new_content = b"data"
+    rsps_lib.add(
+        rsps_lib.GET,
+        downlink_url,
+        json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": checksum_url},
+    )
+    checksum_md5 = md5(new_content).hexdigest()  # noqa: S324
+    rsps_lib.add(
+        rsps_lib.GET,
+        checksum_url,
+        body=f'<file md5="{checksum_md5}" total_size="{len(new_content)}" />',
+    )
+    rsps_lib.add(rsps_lib.GET, "https://cdn.gog.com/setup.exe?token=secret", body=new_content)
+
+    assert main(["sync", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
+
+    assert stale_file.read_bytes() == new_content
+    manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
+    assert manifest["games"][0]["files"][0]["status"] == "verified"
+
+
+@rsps_lib.activate
+def test_sync_keeps_unverified_existing_file_without_checksum_as_downloaded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1673,10 +1744,11 @@ def test_sync_verifies_unverified_existing_file(
     existing = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"data")
+    _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
 
     assert main(["sync", "--destination", str(destination), "--game", "witcher_3", "--yes"]) == 0
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
-    assert manifest["games"][0]["files"][0]["status"] == "verified"
+    assert manifest["games"][0]["files"][0]["status"] == "downloaded"
 
 
 def test_sync_dry_run_json_format_is_single_document(

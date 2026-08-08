@@ -69,11 +69,10 @@ def compare_file(spec: FileSpec, manifest_record: dict | None) -> FileComparison
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "size_changed"}
         )
-    record_md5 = manifest_record.get("expected_md5")
-    checksum = manifest_record.get("checksum")
-    if isinstance(checksum, dict):
-        record_md5 = checksum.get("value")
-    if record_md5 != spec.expected_md5:
+    record_md5 = _record_md5(manifest_record)
+    # Download metadata does not include a checksum until its downlink is resolved.
+    # An unknown current checksum must not look like an explicit checksum removal.
+    if spec.expected_md5 is not None and record_md5 != spec.expected_md5:
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "checksum_changed"}
         )
@@ -136,6 +135,8 @@ def plan_sync(
                 if spec.expected_size:
                     estimated_bytes += spec.expected_size
             elif comparison.status == "unverified":
+                if spec.expected_md5 is None:
+                    spec.expected_md5 = _record_md5(record)
                 to_verify.append(PlannedFile(spec=spec, dest=dest, action="verify"))
             elif comparison.status == "current":
                 current.append(comparison)
@@ -148,6 +149,17 @@ def plan_sync(
         current=current,
         estimated_bytes=estimated_bytes,
     )
+
+
+def _record_md5(manifest_record: dict | None) -> str | None:
+    if manifest_record is None:
+        return None
+    checksum = manifest_record.get("checksum")
+    if isinstance(checksum, dict):
+        value = checksum.get("value")
+        return value if isinstance(value, str) else None
+    value = manifest_record.get("expected_md5")
+    return value if isinstance(value, str) else None
 
 
 def _file_key(

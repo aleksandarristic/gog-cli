@@ -19,6 +19,14 @@ _LOG_INTERVAL = 10 * 1024 * 1024  # log every 10 MiB
 DownloadStatus = Literal["verified", "downloaded", "partial", "failed", "skipped"]
 
 
+class ChecksumFetchError(Exception):
+    """The checksum metadata endpoint could not be read."""
+
+
+class ChecksumParseError(Exception):
+    """The checksum metadata returned an invalid document."""
+
+
 @dataclass
 class DownloadResult:
     status: DownloadStatus
@@ -53,12 +61,13 @@ class Downloader:
     ) -> DownloadResult:
         if dest.exists():
             actual_size = dest.stat().st_size
-            if expected_size is None or actual_size == expected_size:
+            if expected_md5 is not None and _md5_file(dest) == expected_md5.lower():
                 return DownloadResult(
                     status="skipped",
                     path=dest,
                     bytes_downloaded=actual_size,
                     expected_size=expected_size,
+                    checksum_verified=True,
                 )
             # Keep the existing file in place until its replacement has been fully
             # downloaded and verified. os.replace() below swaps the completed temp
@@ -172,7 +181,7 @@ class Downloader:
 
         os.replace(temp_path, dest)
         return DownloadResult(
-            status="verified",
+            status="verified" if expected_md5 is not None else "downloaded",
             path=dest,
             bytes_downloaded=bytes_downloaded,
             expected_size=expected_size,
@@ -184,7 +193,7 @@ def fetch_checksum_xml(
     session: requests.Session,
     checksum_url: str,
 ) -> tuple[str | None, int | None]:
-    """Fetch GOG checksum XML and return (md5, total_size), or (None, None) on failure."""
+    """Fetch GOG checksum XML and return its MD5 and total size."""
     try:
         response = session.get(checksum_url, timeout=15)
         response.raise_for_status()
@@ -193,8 +202,12 @@ def fetch_checksum_xml(
         size_str = root.get("total_size")
         total_size = int(size_str) if size_str is not None else None
         return (md5 or None, total_size)
-    except Exception:  # noqa: BLE001
-        return (None, None)
+    except requests.RequestException as exc:
+        raise ChecksumFetchError("Could not fetch checksum metadata") from exc
+    except (ET.ParseError, ValueError) as exc:
+        raise ChecksumParseError("Checksum metadata is invalid") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ChecksumFetchError("Could not fetch checksum metadata") from exc
 
 
 def _md5_file(path: Path) -> str:
@@ -206,4 +219,11 @@ def _md5_file(path: Path) -> str:
 
 
 # Expose field for convenience
-__all__ = ["Downloader", "DownloadResult", "DownloadStatus", "fetch_checksum_xml"]
+__all__ = [
+    "ChecksumFetchError",
+    "ChecksumParseError",
+    "Downloader",
+    "DownloadResult",
+    "DownloadStatus",
+    "fetch_checksum_xml",
+]

@@ -96,12 +96,13 @@ def download_via_aria2c(
     replacing_existing = False
     if dest.exists() and not aria2_control.exists():
         actual_size = dest.stat().st_size
-        if expected_size is None or actual_size == expected_size:
+        if expected_md5 is not None and _md5_file(dest) == expected_md5.lower():
             return DownloadResult(
                 status="skipped",
                 path=dest,
                 bytes_downloaded=actual_size,
                 expected_size=expected_size,
+                checksum_verified=True,
             )
         # Preserve the existing file until its replacement has downloaded and passed
         # verification. The hidden part file also lets an interrupted replacement
@@ -202,7 +203,7 @@ def download_via_aria2c(
         os.replace(download_path, dest)
 
     return DownloadResult(
-        status="verified",
+        status="verified" if checksum_verified else "downloaded",
         path=dest,
         bytes_downloaded=actual_size,
         expected_size=expected_size,
