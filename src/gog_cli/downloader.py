@@ -196,6 +196,8 @@ def fetch_checksum_xml(
     """Fetch GOG checksum XML and return its MD5 and total size."""
     try:
         response = session.get(checksum_url, timeout=15)
+        if response.status_code == 404:  # GOG sometimes advertises absent bonus XML.
+            return None, None
         response.raise_for_status()
         root = ET.fromstring(response.text)  # noqa: S314
         md5 = root.get("md5")

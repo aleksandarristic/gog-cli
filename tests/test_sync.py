@@ -100,6 +100,17 @@ def test_compare_current_when_source_checksum_is_unknown() -> None:
     assert result.status == "current"
 
 
+def test_compare_current_when_verified_size_refines_source_estimate() -> None:
+    spec = make_spec(size=1000, md5=None)
+    record = current_record(spec, "verified")
+    record["expected_size"] = 1012
+    record["expected_md5"] = "abc123"
+
+    result = compare_file(spec, record)
+
+    assert result.status == "current"
+
+
 def test_compare_partial_when_partial_status() -> None:
     spec = make_spec()
     record = current_record(spec, "partial")
@@ -112,6 +123,15 @@ def test_compare_unverified_when_downloaded_status() -> None:
     record = current_record(spec, "downloaded")
     result = compare_file(spec, record)
     assert result.status == "unverified"
+
+
+def test_compare_stale_when_previous_operation_failed() -> None:
+    spec = make_spec()
+
+    result = compare_file(spec, current_record(spec, "failed"))
+
+    assert result.status == "stale"
+    assert result.stale_reason == "previous_operation_failed"
 
 
 # --- plan_sync ---
@@ -151,11 +171,66 @@ def test_plan_sync_current_goes_to_current_list(tmp_path: Path) -> None:
             }
         ]
     }
+    current_path = layout.game_dir("witcher_3") / "installers" / spec.source_id
+    current_path.parent.mkdir(parents=True)
+    current_path.write_bytes(b"current")
 
     plan = plan_sync(tmp_path, games, specs, manifest, layout)
 
     assert len(plan.current) == 1
     assert plan.estimated_bytes == 0
+
+
+def test_plan_sync_verified_record_with_missing_file_goes_to_download(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    spec = make_spec()
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    record = {
+        "role": spec.role,
+        "platform": spec.platform,
+        "language": spec.language,
+        **current_record(spec, "verified"),
+    }
+
+    plan = plan_sync(
+        tmp_path,
+        games,
+        {"1111": [spec]},
+        {"games": [{"product_id": 1111, "files": [record]}]},
+        layout,
+    )
+
+    assert len(plan.current) == 0
+    assert len(plan.to_download) == 1
+    assert plan.comparisons[0].stale_reason == "local_file_missing"
+
+
+def test_plan_sync_uses_recorded_path_for_current_file(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    spec = make_spec()
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    relative_path = "games/witcher_3/installers/setup_witcher.exe"
+    recorded_path = tmp_path / relative_path
+    recorded_path.parent.mkdir(parents=True)
+    recorded_path.write_bytes(b"current")
+    record = {
+        "role": spec.role,
+        "platform": spec.platform,
+        "language": spec.language,
+        "relative_path": relative_path,
+        **current_record(spec, "verified"),
+    }
+
+    plan = plan_sync(
+        tmp_path,
+        games,
+        {"1111": [spec]},
+        {"games": [{"product_id": 1111, "files": [record]}]},
+        layout,
+    )
+
+    assert len(plan.current) == 1
+    assert spec.filename == "setup_witcher.exe"
 
 
 def test_plan_sync_stale_goes_to_download(tmp_path: Path) -> None:
@@ -207,11 +282,37 @@ def test_plan_sync_unverified_goes_to_verify(tmp_path: Path) -> None:
             }
         ]
     }
+    unverified_path = layout.game_dir("witcher_3") / "installers" / spec.source_id
+    unverified_path.parent.mkdir(parents=True)
+    unverified_path.write_bytes(b"downloaded")
 
     plan = plan_sync(tmp_path, games, specs, manifest, layout)
 
     assert len(plan.to_verify) == 1
     assert plan.estimated_bytes == 0
+
+
+def test_plan_sync_failed_record_goes_to_download(tmp_path: Path) -> None:
+    layout = BackupLayout(root=tmp_path)
+    spec = make_spec()
+    games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
+    record = {
+        "role": spec.role,
+        "platform": spec.platform,
+        "language": spec.language,
+        **current_record(spec, "failed"),
+    }
+
+    plan = plan_sync(
+        tmp_path,
+        games,
+        {"1111": [spec]},
+        {"games": [{"product_id": 1111, "files": [record]}]},
+        layout,
+    )
+
+    assert len(plan.current) == 0
+    assert len(plan.to_download) == 1
 
 
 def test_plan_sync_partial_goes_to_download(tmp_path: Path) -> None:

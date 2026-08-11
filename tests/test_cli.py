@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 from hashlib import md5
 from pathlib import Path
@@ -1163,6 +1164,27 @@ def test_backup_invalid_platform_filter_fails(
     assert "Unknown platform" in capsys.readouterr().err
 
 
+def test_backup_invalid_file_role_filter_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    result = main([
+        "backup",
+        "--destination",
+        str(tmp_path / "backups"),
+        "--dry-run",
+        "--all",
+        "--role",
+        "installler",
+    ])
+
+    assert result == ExitCode.USAGE
+    assert "Unknown file role" in capsys.readouterr().err
+
+
 def test_backup_platform_filter_allows_universal_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1425,6 +1447,7 @@ def test_interactive_false_config_disables_selection_prompt(
 def test_backup_auto_selects_aria2c_when_available(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     destination = tmp_path / "backups"
     _seed_backup_state(tmp_path, monkeypatch)
@@ -1451,10 +1474,27 @@ def test_backup_auto_selects_aria2c_when_available(
         patch("subprocess.run", side_effect=fake_run) as mock_run,
     ):
         # No --downloader flag: should auto-select aria2c since it's "installed".
-        assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+        assert (
+            main([
+                "backup",
+                "--destination",
+                str(destination),
+                "--all",
+                "--yes",
+                "--format",
+                "json",
+            ])
+            == 0
+        )
 
     assert mock_run.called
-    backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    assert all(
+        call.kwargs.get("stdout") == subprocess.DEVNULL
+        and call.kwargs.get("stderr") == subprocess.DEVNULL
+        for call in mock_run.call_args_list
+    )
+    assert json.loads(capsys.readouterr().out)["command"] == "backup"
+    backed_up = destination / "games" / "witcher_3" / "installers" / "setup.exe"
     assert backed_up.read_bytes() == b"data"
 
 
@@ -1473,7 +1513,11 @@ def test_backup_uses_metadata_filename(
     _seed_download_cache(
         tmp_path,
         1111,
-        [_download_entry("setup_witcher", product_id=1111, name="setup_witcher_1.0.exe")],
+        [_download_entry(
+            "setup_witcher",
+            product_id=1111,
+            filename="setup_witcher_1.0.exe",
+        )],
     )
     _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
 
@@ -1490,6 +1534,7 @@ def test_backup_uses_metadata_filename(
 def test_backup_falls_back_to_header_filename(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     destination = tmp_path / "backups"
     _set_home(monkeypatch, tmp_path)
@@ -1501,7 +1546,11 @@ def test_backup_falls_back_to_header_filename(
     _seed_download_cache(
         tmp_path,
         1111,
-        [_download_entry("setup_witcher", product_id=1111, name=None)],
+        [_download_entry(
+            "setup_witcher",
+            product_id=1111,
+            name="Witcher 3 (Windows) (English)",
+        )],
     )
     _mock_download(
         "https://api.gog.com/products/1111/downlink/installer/setup_witcher",
@@ -1510,6 +1559,21 @@ def test_backup_falls_back_to_header_filename(
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
     assert (destination / "games" / "witcher_3" / "installers" / "setup_from_header.exe").exists()
+    capsys.readouterr()
+
+    assert (
+        main([
+            "plan",
+            "--destination",
+            str(destination),
+            "--all",
+            "--format",
+            "json",
+        ])
+        == ExitCode.SUCCESS
+    )
+    repeat_plan = json.loads(capsys.readouterr().out)
+    assert repeat_plan["data"]["summary"]["total_download_files"] == 0
 
 
 @rsps_lib.activate
@@ -1576,15 +1640,21 @@ def test_backup_multi_file_installer_without_file_ids_downloads_all_parts(
         ],
     }
     _seed_download_cache(tmp_path, 1111, [entry])
-    _mock_download("https://api.gog.com/products/1111/downlink/installer/part1")
-    _mock_download("https://api.gog.com/products/1111/downlink/installer/part2")
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part1",
+        artifact_filename="setup.exe",
+    )
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part2",
+        artifact_filename="setup-1.bin",
+    )
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
 
     installers_dir = destination / "games" / "witcher_3" / "installers"
     assert {p.name for p in installers_dir.iterdir()} == {
-        "installer_witcher#0",
-        "installer_witcher#1",
+        "setup.exe",
+        "setup-1.bin",
     }
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     files = manifest["games"][0]["files"]
@@ -1717,11 +1787,14 @@ def test_sync_all_yes_downloads_only_stale_files(
             _manifest_game(source_id="setup_stale", version="1.0"),
         ],
     )
+    current_file = destination / "games" / "witcher_3" / "installers" / "setup_current"
+    current_file.parent.mkdir(parents=True)
+    current_file.write_bytes(b"current")
     _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_stale")
 
     assert main(["sync", "--destination", str(destination), "--all", "--yes"]) == 0
 
-    assert not (destination / "games" / "witcher_3" / "installers" / "setup_current").exists()
+    assert current_file.read_bytes() == b"current"
     stale_file = destination / "games" / "witcher_3" / "installers" / "setup_stale"
     assert stale_file.read_bytes() == b"data"
 
@@ -2262,6 +2335,7 @@ def _download_entry(
     product_id: int = 1111,
     version: str = "1.0",
     name: str | None = "",
+    filename: str | None = None,
 ) -> dict:
     entry = {
         "id": f"installer_{source_id}",
@@ -2278,6 +2352,8 @@ def _download_entry(
     }
     if name is not None:
         entry["name"] = name or source_id
+    if filename is not None:
+        entry["files"][0]["filename"] = filename
     return entry
 
 
@@ -2323,7 +2399,6 @@ def test_backup_check_free_space_fails_when_insufficient(
 
     _seed_backup_state(tmp_path, monkeypatch)
     destination = tmp_path / "backups"
-    destination.mkdir(parents=True, exist_ok=True)
 
     fake_usage = type("du", (), {"free": 1, "used": 999, "total": 1000})()
     monkeypatch.setattr(shutil, "disk_usage", lambda path: fake_usage)
@@ -2920,19 +2995,21 @@ def _seed_download_cache_with_bonus(
     )
 
 
-def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:
+def _mock_download(
+    downlink_url: str,
+    *,
+    header_filename: str | None = None,
+    artifact_filename: str | None = None,
+) -> None:
+    artifact_filename = artifact_filename or downlink_url.rsplit("/", maxsplit=1)[-1]
+    signed_url = f"https://cdn.gog.com/{artifact_filename}?token=secret"
     headers = {}
     if header_filename:
         headers["Content-Disposition"] = f'attachment; filename="{header_filename}"'
     rsps_lib.add(
         rsps_lib.GET,
         downlink_url,
-        json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": ""},
+        json={"downlink": signed_url, "checksum": ""},
     )
-    if header_filename:
-        rsps_lib.add(
-            rsps_lib.HEAD,
-            "https://cdn.gog.com/setup.exe?token=secret",
-            headers=headers,
-        )
-    rsps_lib.add(rsps_lib.GET, "https://cdn.gog.com/setup.exe?token=secret", body=b"data")
+    rsps_lib.add(rsps_lib.HEAD, signed_url, headers=headers)
+    rsps_lib.add(rsps_lib.GET, signed_url, body=b"data")

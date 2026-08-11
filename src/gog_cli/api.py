@@ -59,9 +59,9 @@ class GogApiClient:
             )
             resp.raise_for_status()
         except requests.HTTPError as exc:
-            raise AuthError(f"token refresh failed: {exc}") from exc
+            raise AuthError(f"token refresh failed: {log.redact(str(exc))}") from exc
         except (requests.ConnectionError, requests.Timeout) as exc:
-            raise AuthError(f"token refresh network error: {exc}") from exc
+            raise AuthError(f"token refresh network error: {log.redact(str(exc))}") from exc
 
         data = resp.json()
         expires_at = datetime.fromtimestamp(
@@ -76,6 +76,11 @@ class GogApiClient:
                 "expires_at": expires_at,
             }
         )
+
+    def refresh_tokens(self) -> dict:
+        """Refresh the access token and return the updated session data."""
+        self._refresh_tokens()
+        return self._token_store.load_tokens()
 
     def _get(self, url: str, **kwargs: object) -> requests.Response:
         try:

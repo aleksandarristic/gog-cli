@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from email.message import Message
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import requests
@@ -67,6 +68,7 @@ _ROLE_MAP = {
     "bonus_content": "extra",
     "manuals": "manual",
 }
+_SUPPORTED_FILE_ROLES = frozenset(_ROLE_MAP.values())
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,7 @@ def handle_backup(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=False)
     selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _apply_manifest_filenames(context.download_specs, context.manifest)
     _validate_filters(context, selected)
     plan = plan_backup(
         context.destination,
@@ -138,6 +141,7 @@ def handle_sync(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=True)
     selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _apply_manifest_filenames(context.download_specs, context.manifest)
     _validate_filters(context, selected)
     plan = plan_sync(
         context.destination,
@@ -473,6 +477,7 @@ def _execute_files(
             context.aria2c_policy,
             downloader,
             strict_size=strict_size,
+            quiet=context.output_format == OutputFormat.JSON,
         )
         signed_url = ""
         results.append(_record_and_report(context, command, game, planned, result))
@@ -578,6 +583,7 @@ def _download(
     downloader: Downloader,
     *,
     strict_size: bool = True,
+    quiet: bool = False,
 ) -> DownloadResult:
     if downloader_name == "aria2c":
         return download_via_aria2c(
@@ -587,6 +593,7 @@ def _download(
             expected_md5=expected_md5,
             aria2c_policy=aria2c_policy,
             strict_size=strict_size,
+            quiet=quiet,
         )
     return downloader.download(
         signed_url,
@@ -737,6 +744,38 @@ def _manifest_game_directories(manifest: dict[str, Any]) -> dict[str, str]:
     return directories
 
 
+def _apply_manifest_filenames(
+    download_specs: dict[str, list[FileSpec]],
+    manifest: dict[str, Any],
+) -> None:
+    """Reuse safe filenames learned from earlier Content-Disposition headers."""
+    records_by_product: dict[str, dict[str, dict[str, Any]]] = {}
+    for game in manifest.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        product_id = str(game.get("product_id", ""))
+        records = records_by_product.setdefault(product_id, {})
+        for record in game.get("files", []):
+            if isinstance(record, dict) and isinstance(record.get("file_id"), str):
+                records[record["file_id"]] = record
+
+    for product_id, specs in download_specs.items():
+        records = records_by_product.get(product_id, {})
+        for spec in specs:
+            if spec.filename is not None:
+                continue
+            record = records.get(_file_id(spec))
+            if record is None:
+                continue
+            relative_path = record.get("relative_path")
+            if not isinstance(relative_path, str) or not relative_path:
+                continue
+            candidate = Path(relative_path)
+            if candidate.is_absolute() or ".." in candidate.parts or not candidate.name:
+                continue
+            spec.filename = candidate.name
+
+
 def _map_files_to_games(
     layout: BackupLayout,
     selected_games: list[dict[str, Any]],
@@ -800,16 +839,20 @@ def _filename_from_headers(session: requests.Session, signed_url: str) -> str | 
         response = session.head(signed_url, allow_redirects=True, timeout=15)
         response.raise_for_status()
     except requests.RequestException:
-        return None
+        return _filename_from_url(signed_url)
     header = response.headers.get("Content-Disposition", "")
-    if not header:
-        return None
-    message = Message()
-    message["content-disposition"] = header
-    filename = message.get_filename()
-    if not filename:
-        return None
-    return Path(filename).name
+    if header:
+        message = Message()
+        message["content-disposition"] = header
+        filename = message.get_filename()
+        if filename:
+            return Path(filename).name
+    return _filename_from_url(response.url) or _filename_from_url(signed_url)
+
+
+def _filename_from_url(url: str) -> str | None:
+    filename = Path(unquote(urlsplit(url).path)).name
+    return filename if filename not in {"", ".", ".."} else None
 
 
 def _human_size(n: int | None) -> str:
@@ -1114,13 +1157,9 @@ def _download_filename(
     entry: dict[str, Any],
     _source_id: str,
 ) -> str | None:
-    for value in (
-        file_entry.get("name"),
-        file_entry.get("filename"),
-        file_entry.get("title"),
-        entry.get("filename"),
-        entry.get("name"),
-    ):
+    # Generic name/title fields describe the download as a product, not the
+    # actual file. Leaving filename unset lets execution use Content-Disposition.
+    for value in (file_entry.get("filename"), entry.get("filename")):
         if isinstance(value, str) and value.strip():
             return Path(value.strip()).name
     return None
@@ -1201,3 +1240,7 @@ def _validate_filters(context: _ExecutionContext, selected: list[dict[str, Any]]
         missing = sorted(set(context.languages) - available)
         if missing:
             raise UsageError(f"Unknown language filter: {', '.join(missing)}")
+    if context.file_roles:
+        missing = sorted(set(context.file_roles) - _SUPPORTED_FILE_ROLES)
+        if missing:
+            raise UsageError(f"Unknown file role filter: {', '.join(missing)}")

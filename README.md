@@ -66,6 +66,7 @@ See [docs/TODO.md](docs/TODO.md) for planned features and improvements.
 
 - [CLI Reference](docs/cli-reference.md)
 - [Config Reference](docs/config-reference.md)
+- [Real Download Test Plan](docs/real-download-test-plan.md)
 
 ## Basic Workflow
 

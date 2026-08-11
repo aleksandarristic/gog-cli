@@ -123,6 +123,8 @@ gog auth status
 ```
 
 Shows whether a valid local session exists and when the access token expires.
+If the access token has expired, this command uses the stored refresh token to
+renew it before reporting status.
 
 **Output (logged in):**
 
@@ -130,19 +132,17 @@ Shows whether a valid local session exists and when the access token expires.
 Logged in as your_username. Token expires 2026-07-01T12:00:00Z.
 ```
 
-**Output (not logged in or expired):**
+**Output (not logged in or refresh failed):**
 
 ```
 Not logged in. Run: gog auth login
 ```
 
-or
+If token renewal fails, the error identifies the refresh failure and asks for a
+new login.
 
-```
-Token expired. Run: gog auth login
-```
-
-**Exit codes:** `0` if a valid session exists, `3` if not logged in or expired.
+**Exit codes:** `0` if a valid or successfully refreshed session exists, `3` if
+not logged in or token refresh fails.
 
 ---
 
@@ -379,7 +379,7 @@ before a long backup run.
 | `--destination PATH` | `-d` | Backup destination directory. Falls back to config. |
 | `--format` | `-f` | `human` (default) or `json` |
 | `--storage` | | Show disk usage line (required, free, and OK/INSUFFICIENT). |
-| `--check-free-space` | | Fail with exit code 6 if free disk space is less than estimated download size. Also implies `--storage`. |
+| `--check-free-space` | | Fail with exit code 6 if free disk space is less than estimated download size. For a new destination, checks its nearest existing parent filesystem. Also implies `--storage`. |
 | `--summary` | | Print summary header only; omit per-game file detail. |
 | `--changed-only` | | In per-game detail, show only games with pending downloads. |
 | `--explain-skips` | | Annotate skipped files with their filter reason. |
@@ -619,9 +619,10 @@ if a required cache is missing.
 gog sync --destination PATH [game selection flags] [interaction flags] [--format {human,json}]
 ```
 
-Compares cached source metadata against the backup manifest and plans updates
-for stale or missing files. Without `--yes`, prints a dry-run plan and exits.
-With `--yes`, executes the plan.
+Compares cached source metadata and local files against the backup manifest,
+then plans updates for stale, failed, or missing files. A manifest record is
+only current when its recorded local file still exists. Without `--yes`, prints
+a dry-run plan and exits. With `--yes`, executes the plan.
 
 `gog sync` requires an existing backup manifest (i.e., `gog backup` must have
 been run at least once for the destination).
@@ -695,6 +696,9 @@ against the local library cache written by `gog refresh`.
 | `--language LANG` | `-l` | Restrict downloads to this language code (e.g. `en`, `de`, `fr`). Repeatable. |
 | `--role ROLE` | `-r` | Restrict to this file role (`installer`, `patch`, `extra`, `language_pack`, `manual`). Repeatable. |
 | `--extras` | | Shortcut for `--role extra`. |
+
+Unknown role values are rejected with a usage error instead of producing an
+empty successful plan.
 
 `--all` and explicit selectors (positional `GAME`, `--game`, `--games-from`)
 are mutually exclusive. The `--exclude` flag is combinable with any selection

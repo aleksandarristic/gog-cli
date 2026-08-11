@@ -285,7 +285,7 @@ def test_plan_backup_disk_free_bytes_when_destination_exists(tmp_path: Path) -> 
     assert plan.disk_free_bytes > 0
 
 
-def test_plan_backup_disk_free_bytes_none_when_destination_missing(tmp_path: Path) -> None:
+def test_plan_backup_uses_existing_parent_when_destination_missing(tmp_path: Path) -> None:
     destination = tmp_path / "nonexistent"
     layout = BackupLayout(root=destination)
     games = [{"id": 1111, "title": "Witcher 3", "slug": "witcher_3"}]
@@ -293,7 +293,8 @@ def test_plan_backup_disk_free_bytes_none_when_destination_missing(tmp_path: Pat
 
     plan = plan_backup(destination, games, specs, layout)
 
-    assert plan.disk_free_bytes is None
+    assert plan.disk_free_bytes is not None
+    assert plan.disk_free_bytes > 0
 
 
 def test_plan_backup_new_fields_default_empty(tmp_path: Path) -> None:

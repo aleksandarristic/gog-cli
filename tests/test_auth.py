@@ -243,20 +243,47 @@ def test_handle_auth_status_logged_in(
     assert "tester" in capsys.readouterr().out
 
 
-def test_handle_auth_status_expired_token(
+@rsps_lib.activate
+def test_handle_auth_status_refreshes_expired_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    rsps_lib.add(
+        rsps_lib.GET,
+        _TOKEN_URL,
+        json={"access_token": "fresh", "refresh_token": "fresh_ref", "expires_in": 3600},
+    )
     expired_tokens = {**_SAMPLE_TOKENS, "expires_at": _PAST}
     _seed_session(tmp_path, expired_tokens)
     _patch_auth_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr("gog_cli.auth._try_load_keyring", lambda: None)
+    monkeypatch.setattr("gog_cli.auth._try_save_keyring", lambda _: False)
 
     args = MagicMock()
     result = handle_auth_status(args)
 
+    assert result == ExitCode.SUCCESS
+    assert "tester" in capsys.readouterr().out
+    paths = resolve_app_paths({"HOME": str(tmp_path)})
+    assert json.loads(paths.session_state.read_text())["access_token"] == "fresh"
+
+
+@rsps_lib.activate
+def test_handle_auth_status_expired_token_with_failed_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rsps_lib.add(rsps_lib.GET, _TOKEN_URL, status=400, json={"error": "invalid_grant"})
+    _seed_session(tmp_path, {**_SAMPLE_TOKENS, "expires_at": _PAST})
+    _patch_auth_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr("gog_cli.auth._try_load_keyring", lambda: None)
+
+    result = handle_auth_status(MagicMock())
+
     assert result == ExitCode.AUTH
-    assert "expired" in capsys.readouterr().err
+    assert "Session refresh failed" in capsys.readouterr().err
 
 
 def test_handle_auth_status_not_logged_in(

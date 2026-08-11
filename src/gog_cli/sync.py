@@ -57,6 +57,14 @@ def compare_file(spec: FileSpec, manifest_record: dict | None) -> FileComparison
         return FileComparison(**{**base.__dict__, "status": "partial"})
     if rec_status == "downloaded":
         return FileComparison(**{**base.__dict__, "status": "unverified"})
+    if rec_status != "verified":
+        return FileComparison(
+            **{
+                **base.__dict__,
+                "status": "stale",
+                "stale_reason": "previous_operation_failed",
+            }
+        )
 
     # Check staleness
     if manifest_record.get("source_id") != spec.source_id:
@@ -65,13 +73,18 @@ def compare_file(spec: FileSpec, manifest_record: dict | None) -> FileComparison
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "version_changed"}
         )
-    if manifest_record.get("expected_size") != spec.expected_size:
+    record_md5 = _record_md5(manifest_record)
+    if (
+        manifest_record.get("expected_size") != spec.expected_size
+        and not (record_md5 is not None and spec.expected_md5 is None)
+    ):
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "size_changed"}
         )
-    record_md5 = _record_md5(manifest_record)
     # Download metadata does not include a checksum until its downlink is resolved.
-    # An unknown current checksum must not look like an explicit checksum removal.
+    # A checksum-verified manifest can also contain an exact checksum XML size while
+    # source metadata contains only a rounded estimate. Neither difference should
+    # look like an explicit remote checksum or size change.
     if spec.expected_md5 is not None and record_md5 != spec.expected_md5:
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "checksum_changed"}
@@ -123,11 +136,28 @@ def plan_sync(
 
             key = _file_key(spec.role, spec.platform, spec.language, spec.source_id)
             record = game_manifest.get(key)
-            comparison = compare_file(spec, record)
-            comparisons.append(comparison)
-
             dest_dir = _role_dir(layout, game_dir, spec.role)
-            dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
+            default_dest = dest_dir / sanitize_filename(spec.filename or spec.source_id)
+            dest = default_dest
+            comparison = compare_file(spec, record)
+            if comparison.status in {"current", "unverified"}:
+                recorded_dest = _recorded_destination(layout, record)
+                existing_dest = recorded_dest or default_dest
+                if not existing_dest.is_file():
+                    comparison = FileComparison(
+                        source_id=spec.source_id,
+                        role=spec.role,
+                        platform=spec.platform,
+                        language=spec.language,
+                        status="missing",
+                        stale_reason="local_file_missing",
+                    )
+                else:
+                    dest = existing_dest
+                    if spec.filename is None:
+                        spec.filename = dest.name
+
+            comparisons.append(comparison)
             _claim_destination(destination_owners, dest, spec)
 
             if comparison.status in ("missing", "stale", "partial"):
@@ -160,6 +190,18 @@ def _record_md5(manifest_record: dict | None) -> str | None:
         return value if isinstance(value, str) else None
     value = manifest_record.get("expected_md5")
     return value if isinstance(value, str) else None
+
+
+def _recorded_destination(layout: BackupLayout, manifest_record: dict | None) -> Path | None:
+    if manifest_record is None:
+        return None
+    relative_path = manifest_record.get("relative_path")
+    if not isinstance(relative_path, str) or not relative_path:
+        return None
+    candidate = Path(relative_path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    return layout.root / candidate
 
 
 def _file_key(

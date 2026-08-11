@@ -63,6 +63,11 @@ This project follows [Semantic Versioning](https://semver.org/) with a `0.x` pre
 uv run pytest
 ```
 
+Authenticated real-download checks are deliberately separate from pytest and
+CI. See [`docs/real-download-test-plan.md`](docs/real-download-test-plan.md) for
+the opt-in `e2e/real_download.py` harness. It only downloads files when passed
+the explicit `--execute` flag.
+
 ## Code style
 
 Linting is enforced with [Ruff](https://docs.astral.sh/ruff/):

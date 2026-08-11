@@ -7,6 +7,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.2] — 2026-08-11
+
+### Fixed
+- Download entry display names are no longer mistaken for local filenames;
+  actual artifact names come from explicit metadata, GOG response headers, or
+  the final signed CDN URL. This preserves every part of split installers.
+- OAuth tokens are redacted from refresh errors and real-test command reports.
+- Missing checksum XML documents advertised by GOG are treated as unavailable
+  checksums instead of blocking bonus-content downloads; malformed documents
+  and other fetch failures remain errors.
+- Sync no longer treats a checksum XML's exact verified size as stale merely
+  because cached product metadata contains a rounded size estimate.
+- `gog sync` retries failed records and restores files that are recorded in the
+  manifest but missing from disk.
+- Sync checks files at their manifest-recorded paths, including filenames that
+  were supplied by GOG at download time.
+- Free-space checks use the nearest existing parent when the requested backup
+  destination has not been created yet.
+- `gog auth status` refreshes an expired access token when the stored refresh
+  token is still valid.
+- Unknown `--role` values now return a usage error instead of silently selecting
+  no files.
+
+### Documentation
+- Added an opt-in real-download E2E matrix covering single-game and selector-
+  file workflows, platform-specific installers, extras, direct downloads, and
+  `aria2c` downloads.
+
+---
+
 ## [1.0.1] — 2026-08-02
 
 ### Fixed
