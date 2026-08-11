@@ -1,4 +1,4 @@
-# Mixed exact selectors for the deferred real-download list test.
+# Mixed exact selectors for the real-download list case.
 1207658879
 Warhammer Skulls 2025 Digital Goodie Bag
 1207667043

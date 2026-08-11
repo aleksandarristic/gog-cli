@@ -81,6 +81,7 @@ def handle_backup(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=False)
     selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _apply_manifest_filenames(context.download_specs, context.manifest)
     _validate_filters(context, selected)
     plan = plan_backup(
         context.destination,
@@ -474,6 +475,7 @@ def _execute_files(
             context.aria2c_policy,
             downloader,
             strict_size=strict_size,
+            quiet=context.output_format == OutputFormat.JSON,
         )
         signed_url = ""
         results.append(_record_and_report(context, command, game, planned, result))
@@ -579,6 +581,7 @@ def _download(
     downloader: Downloader,
     *,
     strict_size: bool = True,
+    quiet: bool = False,
 ) -> DownloadResult:
     if downloader_name == "aria2c":
         return download_via_aria2c(
@@ -588,6 +591,7 @@ def _download(
             expected_md5=expected_md5,
             aria2c_policy=aria2c_policy,
             strict_size=strict_size,
+            quiet=quiet,
         )
     return downloader.download(
         signed_url,
@@ -736,6 +740,38 @@ def _manifest_game_directories(manifest: dict[str, Any]) -> dict[str, str]:
         ):
             directories[product_id] = candidate.parts[1]
     return directories
+
+
+def _apply_manifest_filenames(
+    download_specs: dict[str, list[FileSpec]],
+    manifest: dict[str, Any],
+) -> None:
+    """Reuse safe filenames learned from earlier Content-Disposition headers."""
+    records_by_product: dict[str, dict[str, dict[str, Any]]] = {}
+    for game in manifest.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        product_id = str(game.get("product_id", ""))
+        records = records_by_product.setdefault(product_id, {})
+        for record in game.get("files", []):
+            if isinstance(record, dict) and isinstance(record.get("file_id"), str):
+                records[record["file_id"]] = record
+
+    for product_id, specs in download_specs.items():
+        records = records_by_product.get(product_id, {})
+        for spec in specs:
+            if spec.filename is not None:
+                continue
+            record = records.get(_file_id(spec))
+            if record is None:
+                continue
+            relative_path = record.get("relative_path")
+            if not isinstance(relative_path, str) or not relative_path:
+                continue
+            candidate = Path(relative_path)
+            if candidate.is_absolute() or ".." in candidate.parts or not candidate.name:
+                continue
+            spec.filename = candidate.name
 
 
 def _map_files_to_games(

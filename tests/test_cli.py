@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 from hashlib import md5
 from pathlib import Path
@@ -1446,6 +1447,7 @@ def test_interactive_false_config_disables_selection_prompt(
 def test_backup_auto_selects_aria2c_when_available(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     destination = tmp_path / "backups"
     _seed_backup_state(tmp_path, monkeypatch)
@@ -1472,9 +1474,26 @@ def test_backup_auto_selects_aria2c_when_available(
         patch("subprocess.run", side_effect=fake_run) as mock_run,
     ):
         # No --downloader flag: should auto-select aria2c since it's "installed".
-        assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
+        assert (
+            main([
+                "backup",
+                "--destination",
+                str(destination),
+                "--all",
+                "--yes",
+                "--format",
+                "json",
+            ])
+            == 0
+        )
 
     assert mock_run.called
+    assert all(
+        call.kwargs.get("stdout") == subprocess.DEVNULL
+        and call.kwargs.get("stderr") == subprocess.DEVNULL
+        for call in mock_run.call_args_list
+    )
+    assert json.loads(capsys.readouterr().out)["command"] == "backup"
     backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
     assert backed_up.read_bytes() == b"data"
 
@@ -1515,6 +1534,7 @@ def test_backup_uses_metadata_filename(
 def test_backup_falls_back_to_header_filename(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     destination = tmp_path / "backups"
     _set_home(monkeypatch, tmp_path)
@@ -1539,6 +1559,21 @@ def test_backup_falls_back_to_header_filename(
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
     assert (destination / "games" / "witcher_3" / "installers" / "setup_from_header.exe").exists()
+    capsys.readouterr()
+
+    assert (
+        main([
+            "plan",
+            "--destination",
+            str(destination),
+            "--all",
+            "--format",
+            "json",
+        ])
+        == ExitCode.SUCCESS
+    )
+    repeat_plan = json.loads(capsys.readouterr().out)
+    assert repeat_plan["data"]["summary"]["total_download_files"] == 0
 
 
 @rsps_lib.activate

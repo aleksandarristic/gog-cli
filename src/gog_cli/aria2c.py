@@ -87,6 +87,7 @@ def download_via_aria2c(
     aria2c_policy: str = "auto",
     aria2c_path: Path | None = None,
     strict_size: bool = True,
+    quiet: bool = False,
     logger: logging.Logger | None = None,
 ) -> DownloadResult:
     log = logger or logging.getLogger(__name__)
@@ -142,9 +143,10 @@ def download_via_aria2c(
                 cmd += ["--header", f"{key}: {value}"]
 
         log.debug("running aria2c for %s", dest.name)
-        result = subprocess.run(  # noqa: S603
-            cmd,
-        )
+        run_kwargs = {}
+        if quiet:
+            run_kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        result = subprocess.run(cmd, **run_kwargs)  # noqa: S603
 
         if result.returncode != 0:
             return DownloadResult(

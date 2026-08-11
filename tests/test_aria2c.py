@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -83,6 +84,25 @@ def test_download_success(tmp_path: Path) -> None:
     assert result.status == "downloaded"
     assert result.path == dest
     assert result.bytes_downloaded == len(content)
+
+
+def test_download_quiet_suppresses_subprocess_output(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    mock_run = _make_aria2c_success(dest)
+
+    with patch("subprocess.run", mock_run):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            quiet=True,
+        )
+
+    assert result.status == "downloaded"
+    assert mock_run.call_args.kwargs == {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
 
 
 def test_download_skips_existing(tmp_path: Path) -> None:
