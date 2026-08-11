@@ -125,7 +125,7 @@ python e2e/real_download.py --execute --root /tmp/gog-cli-e2e-manual-1
 
 Pass `--skip-recovery` only when testing basic download behavior without the
 missing-file and resume phase. Pass `--gog /absolute/path/to/gog` to test a
-specific installation. The harness requires `gog 1.0.2.dev0` by default; use
+specific installation. The harness requires `gog 1.0.2` by default; use
 `--expected-version` when testing a later release.
 
 ## Result review

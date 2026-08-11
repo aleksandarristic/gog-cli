@@ -7,7 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [1.0.2] — 2026-08-11
 
 ### Fixed
 - Download entry display names are no longer mistaken for local filenames;

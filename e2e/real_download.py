@@ -155,7 +155,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--expected-version",
-        default="1.0.2.dev0",
+        default="1.0.2",
         help="Version required from gog --version; pass an empty value to disable.",
     )
     parser.add_argument(
