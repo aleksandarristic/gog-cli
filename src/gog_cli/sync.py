@@ -73,13 +73,18 @@ def compare_file(spec: FileSpec, manifest_record: dict | None) -> FileComparison
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "version_changed"}
         )
-    if manifest_record.get("expected_size") != spec.expected_size:
+    record_md5 = _record_md5(manifest_record)
+    if (
+        manifest_record.get("expected_size") != spec.expected_size
+        and not (record_md5 is not None and spec.expected_md5 is None)
+    ):
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "size_changed"}
         )
-    record_md5 = _record_md5(manifest_record)
     # Download metadata does not include a checksum until its downlink is resolved.
-    # An unknown current checksum must not look like an explicit checksum removal.
+    # A checksum-verified manifest can also contain an exact checksum XML size while
+    # source metadata contains only a rounded estimate. Neither difference should
+    # look like an explicit remote checksum or size change.
     if spec.expected_md5 is not None and record_md5 != spec.expected_md5:
         return FileComparison(
             **{**base.__dict__, "status": "stale", "stale_reason": "checksum_changed"}

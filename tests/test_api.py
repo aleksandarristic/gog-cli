@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import requests
 import responses as rsps_lib
 
 from gog_cli.api import GogApiClient, TokenStore
@@ -83,6 +84,26 @@ def test_get_owned_ids_401_then_refresh_fails_raises_auth_error() -> None:
     client, _ = _make_client()
     with pytest.raises(AuthError):
         client.get_owned_ids()
+
+
+@rsps_lib.activate
+def test_refresh_network_error_redacts_refresh_token() -> None:
+    secret = "do-not-leak-this-refresh-token"
+    rsps_lib.add(
+        rsps_lib.GET,
+        _TOKEN_URL,
+        body=requests.ConnectionError(
+            f"request failed: {_TOKEN_URL}?grant_type=refresh_token&refresh_token={secret}"
+        ),
+    )
+    client = GogApiClient(FakeTokenStore(refresh_token=secret))
+
+    with pytest.raises(AuthError) as exc_info:
+        client.refresh_tokens()
+
+    message = str(exc_info.value)
+    assert secret not in message
+    assert "refresh_token=[REDACTED]" in message
 
 
 @rsps_lib.activate

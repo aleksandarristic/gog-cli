@@ -1494,7 +1494,7 @@ def test_backup_auto_selects_aria2c_when_available(
         for call in mock_run.call_args_list
     )
     assert json.loads(capsys.readouterr().out)["command"] == "backup"
-    backed_up = destination / "games" / "witcher_3" / "installers" / "setup_witcher"
+    backed_up = destination / "games" / "witcher_3" / "installers" / "setup.exe"
     assert backed_up.read_bytes() == b"data"
 
 
@@ -1640,15 +1640,21 @@ def test_backup_multi_file_installer_without_file_ids_downloads_all_parts(
         ],
     }
     _seed_download_cache(tmp_path, 1111, [entry])
-    _mock_download("https://api.gog.com/products/1111/downlink/installer/part1")
-    _mock_download("https://api.gog.com/products/1111/downlink/installer/part2")
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part1",
+        artifact_filename="setup.exe",
+    )
+    _mock_download(
+        "https://api.gog.com/products/1111/downlink/installer/part2",
+        artifact_filename="setup-1.bin",
+    )
 
     assert main(["backup", "--destination", str(destination), "--all", "--yes"]) == 0
 
     installers_dir = destination / "games" / "witcher_3" / "installers"
     assert {p.name for p in installers_dir.iterdir()} == {
-        "installer_witcher#0",
-        "installer_witcher#1",
+        "setup.exe",
+        "setup-1.bin",
     }
     manifest = json.loads(BackupLayout(destination).manifest_file.read_text())
     files = manifest["games"][0]["files"]
@@ -2989,19 +2995,21 @@ def _seed_download_cache_with_bonus(
     )
 
 
-def _mock_download(downlink_url: str, *, header_filename: str | None = None) -> None:
+def _mock_download(
+    downlink_url: str,
+    *,
+    header_filename: str | None = None,
+    artifact_filename: str | None = None,
+) -> None:
+    artifact_filename = artifact_filename or downlink_url.rsplit("/", maxsplit=1)[-1]
+    signed_url = f"https://cdn.gog.com/{artifact_filename}?token=secret"
     headers = {}
     if header_filename:
         headers["Content-Disposition"] = f'attachment; filename="{header_filename}"'
     rsps_lib.add(
         rsps_lib.GET,
         downlink_url,
-        json={"downlink": "https://cdn.gog.com/setup.exe?token=secret", "checksum": ""},
+        json={"downlink": signed_url, "checksum": ""},
     )
-    if header_filename:
-        rsps_lib.add(
-            rsps_lib.HEAD,
-            "https://cdn.gog.com/setup.exe?token=secret",
-            headers=headers,
-        )
-    rsps_lib.add(rsps_lib.GET, "https://cdn.gog.com/setup.exe?token=secret", body=b"data")
+    rsps_lib.add(rsps_lib.HEAD, signed_url, headers=headers)
+    rsps_lib.add(rsps_lib.GET, signed_url, body=b"data")

@@ -229,6 +229,15 @@ def test_fetch_checksum_xml_happy_path() -> None:
 
 
 @responses.activate
+def test_fetch_checksum_xml_missing_returns_unknown() -> None:
+    import requests
+
+    responses.get(_CHECKSUM_URL, status=404)
+
+    assert fetch_checksum_xml(requests.Session(), _CHECKSUM_URL) == (None, None)
+
+
+@responses.activate
 def test_fetch_checksum_xml_bad_xml_raises_parse_error() -> None:
     import requests
 

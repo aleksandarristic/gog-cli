@@ -11,7 +11,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - Download entry display names are no longer mistaken for local filenames;
-  actual filenames come from explicit metadata or GOG response headers.
+  actual artifact names come from explicit metadata, GOG response headers, or
+  the final signed CDN URL. This preserves every part of split installers.
+- OAuth tokens are redacted from refresh errors and real-test command reports.
+- Missing checksum XML documents advertised by GOG are treated as unavailable
+  checksums instead of blocking bonus-content downloads; malformed documents
+  and other fetch failures remain errors.
+- Sync no longer treats a checksum XML's exact verified size as stale merely
+  because cached product metadata contains a rounded size estimate.
 - `gog sync` retries failed records and restores files that are recorded in the
   manifest but missing from disk.
 - Sync checks files at their manifest-recorded paths, including filenames that
@@ -24,8 +31,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   no files.
 
 ### Documentation
-- Added a deferred real-download test matrix covering single-game and selector-
-  file workflows with both direct and `aria2c` downloaders.
+- Added an opt-in real-download E2E matrix covering single-game and selector-
+  file workflows, platform-specific installers, extras, direct downloads, and
+  `aria2c` downloads.
 
 ---
 

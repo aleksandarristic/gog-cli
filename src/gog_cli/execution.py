@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from email.message import Message
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import requests
@@ -140,6 +141,7 @@ def handle_sync(args: argparse.Namespace) -> int:
     context = _load_context(args, require_manifest=True)
     selected = _select_games(context.library, args, interactive_default=context.interactive)
     context.download_specs = _load_download_specs(context.paths, selected)
+    _apply_manifest_filenames(context.download_specs, context.manifest)
     _validate_filters(context, selected)
     plan = plan_sync(
         context.destination,
@@ -837,16 +839,20 @@ def _filename_from_headers(session: requests.Session, signed_url: str) -> str | 
         response = session.head(signed_url, allow_redirects=True, timeout=15)
         response.raise_for_status()
     except requests.RequestException:
-        return None
+        return _filename_from_url(signed_url)
     header = response.headers.get("Content-Disposition", "")
-    if not header:
-        return None
-    message = Message()
-    message["content-disposition"] = header
-    filename = message.get_filename()
-    if not filename:
-        return None
-    return Path(filename).name
+    if header:
+        message = Message()
+        message["content-disposition"] = header
+        filename = message.get_filename()
+        if filename:
+            return Path(filename).name
+    return _filename_from_url(response.url) or _filename_from_url(signed_url)
+
+
+def _filename_from_url(url: str) -> str | None:
+    filename = Path(unquote(urlsplit(url).path)).name
+    return filename if filename not in {"", ".", ".."} else None
 
 
 def _human_size(n: int | None) -> str:

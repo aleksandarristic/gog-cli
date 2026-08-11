@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -21,6 +22,11 @@ MIB = 1024 * 1024
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SELECTOR_FILE = Path(__file__).with_name("real-download-games.txt")
 SUCCESS_FILE_STATUSES = {"downloaded", "verified", "skipped"}
+_BEARER_RE = re.compile(r"(Bearer\s+)\S+", re.IGNORECASE)
+_SECRET_PARAM_RE = re.compile(
+    r"((?:access_token|refresh_token|code)=)[^&\s\"']+",
+    re.IGNORECASE,
+)
 
 
 class E2EError(RuntimeError):
@@ -65,7 +71,7 @@ CASES = (
     Case(
         name="direct-raptor-combined",
         description="fuzzy title; Windows installer plus extras; direct downloader",
-        plan_selection=("raptor call shadows",),
+        plan_selection=("raptor call",),
         sync_selection=("--game", "1207658879"),
         filters=("--windows", "--role", "installer", "--role", "extra"),
         downloader="direct",
@@ -93,11 +99,13 @@ CASES = (
         expected_display_mib=89,
     ),
     Case(
-        name="aria-list-all",
-        description="mixed ID/title selector file; all six games and files; aria2c",
+        name="aria-list-installers-extras",
+        description=(
+            "mixed ID/title selector file; Windows installers plus extras; aria2c"
+        ),
         plan_selection=("--games-from", str(SELECTOR_FILE)),
         sync_selection=("--games-from", str(SELECTOR_FILE)),
-        filters=(),
+        filters=("--windows", "--role", "installer", "--role", "extra"),
         downloader="aria2c",
         expected_product_ids=(
             "1207658879",
@@ -107,7 +115,7 @@ CASES = (
             "1129701343",
             "1449569170",
         ),
-        expected_display_mib=254,
+        expected_display_mib=179,
     ),
 )
 
@@ -173,6 +181,10 @@ def _require(condition: bool, message: str) -> None:
         raise E2EError(message)
 
 
+def _redact(text: str) -> str:
+    return _SECRET_PARAM_RE.sub(r"\1[REDACTED]", _BEARER_RE.sub(r"\1[REDACTED]", text))
+
+
 def _run(
     argv: list[str],
     command_records: list[CommandRecord],
@@ -194,12 +206,12 @@ def _run(
             argv=argv,
             returncode=completed.returncode,
             elapsed_seconds=round(elapsed, 3),
-            stdout_tail=completed.stdout[-20000:],
-            stderr_tail=completed.stderr[-20000:],
+            stdout_tail=_redact(completed.stdout[-20000:]),
+            stderr_tail=_redact(completed.stderr[-20000:]),
         )
     )
     if completed.stderr:
-        print(completed.stderr.rstrip(), file=sys.stderr)
+        print(_redact(completed.stderr.rstrip()), file=sys.stderr)
     _require(
         completed.returncode == 0,
         f"command failed with exit code {completed.returncode}: {shlex.join(argv)}",

@@ -47,9 +47,9 @@ role combinations, and unfiltered all-file selection.
 | `direct-raptor-combined` | fuzzy title | Windows installer + extras | direct | 51 MiB |
 | `direct-bio-all` | exact `--game` | every available file | direct | 31 MiB |
 | `aria-mortal-kombat` | repeated ID + title | two games, every file | aria2c | 89 MiB |
-| `aria-list-all` | mixed selector file | all six games, every file | aria2c | 254 MiB |
+| `aria-list-installers-extras` | mixed selector file | six games, Windows installers + extras | aria2c | 179 MiB |
 
-The full matrix transfers about 481 MiB before the small recovery reruns.
+The full matrix transfers about 406 MiB before the small recovery reruns.
 
 ## What is verified
 
