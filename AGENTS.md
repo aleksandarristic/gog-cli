@@ -1,41 +1,54 @@
 # AGENTS
 
 ## Intent
-- Build a CLI application for backing up a user's DRM-free GOG game library.
-- The tool should prioritize reliable downloads, resumable operation, clear status output, and safe local file handling.
-- Preserve enough metadata to make backups auditable and restorable, such as game titles, build/version details, installer names, checksums when available, and download timestamps.
+- This project is a CLI application for backing up a user's DRM-free GOG game
+  library.
+- Its priorities are reliable downloads, resumable operation, clear status
+  output, and safe local file handling.
+- Backups retain enough metadata to remain auditable and restorable, including
+  game titles, build/version details, installer names, available checksums, and
+  download timestamps.
 - Python is the chosen implementation language for the CLI.
 
 ## Key behaviors
-- Prefer small, reviewable changes and add tests where feasible.
-- Keep CLI behavior explicit and scriptable: stable flags, predictable exit codes, useful stderr/stdout separation, and no hidden destructive actions.
-- Treat credentials and auth tokens carefully. Do not log secrets, commit secrets, or store them unencrypted unless the user explicitly approves that tradeoff.
-- Avoid deleting or overwriting downloaded game files unless the command requires it and the behavior is clearly named.
-- Design long-running download workflows to recover from interruption where feasible.
-- Favor official or documented GOG interfaces when practical. If relying on an unofficial endpoint or reverse-engineered behavior, document the risk in code or docs near the usage.
-- Use the existing Python project conventions unless the user asks to revisit the stack.
+- Changes are small and reviewable, with tests included where feasible.
+- CLI behavior is explicit and scriptable: flags are stable, exit codes are
+  predictable, stdout and stderr have useful separation, and destructive
+  actions are never hidden.
+- Credentials and auth tokens receive careful handling. Secrets are never
+  logged, committed, or stored unencrypted unless the user explicitly approves
+  that tradeoff.
+- Downloaded game files are neither deleted nor overwritten unless a command
+  requires it and clearly names the behavior.
+- Long-running download workflows support recovery from interruption where
+  feasible.
+- Official or documented GOG interfaces are preferred when practical. Any
+  reliance on an unofficial endpoint or reverse-engineered behavior is
+  documented near its usage in code or documentation.
+- Existing Python project conventions remain in use unless the user asks to
+  revisit the stack.
 
 ## Local runtime environment
-- Do not assume every agent run has the same surrounding tooling. At the start
-  of any task that needs build, preview, or external CLI verification, check the
-  current session for the required commands before deciding which verification
-  steps are available.
-- If present, `.agent-env.local.md` is a gitignored environment note for quick
-  orientation. Treat it as a cache only; verify relevant commands before relying
-  on it.
+- The surrounding tooling can differ between agent runs. Tasks involving a
+  build, preview, or external CLI verification begin with a check for the
+  required commands in the current session, which determines the available
+  verification steps.
+- When present, `.agent-env.local.md` is a gitignored environment note for quick
+  orientation. It serves only as a cache; relevant commands are verified before
+  use.
 - Python is managed with `uv`. The project pins Python in `.python-version`,
   declares dependencies in `pyproject.toml`, and commits the resolved dependency
-  graph in `uv.lock`. Do not introduce `requirements.txt`; use `uv add` or
-  `uv add --dev` for dependency changes.
-- Inside a restricted Codex sandbox, prefix `uv` commands with
-  `UV_CACHE_DIR=.uv-cache` so uv does not try to write under the user's home
-  directory.
+  graph in `uv.lock`. The project has no `requirements.txt`; dependency changes
+  use `uv add` or `uv add --dev`.
+- Inside a restricted Codex sandbox, `uv` commands use the
+  `UV_CACHE_DIR=.uv-cache` prefix so uv does not try to write under the user's
+  home directory.
 
 ## Commands
-- Sync dependencies with `UV_CACHE_DIR=.uv-cache uv sync`.
-- Run tests with `UV_CACHE_DIR=.uv-cache uv run pytest`.
-- Run linting with `UV_CACHE_DIR=.uv-cache uv run ruff check src/ tests/`.
-- Run the CLI locally with `UV_CACHE_DIR=.uv-cache uv run gog --help` or
+- Dependency sync: `UV_CACHE_DIR=.uv-cache uv sync`
+- Tests: `UV_CACHE_DIR=.uv-cache uv run pytest`
+- Linting: `UV_CACHE_DIR=.uv-cache uv run ruff check src/ tests/`
+- Local CLI: `UV_CACHE_DIR=.uv-cache uv run gog --help` or
   `UV_CACHE_DIR=.uv-cache uv run python -m gog_cli.cli --help`.
 
 ## Branch and remote hygiene
@@ -55,4 +68,5 @@ All work goes on a branch. `main` is always releasable.
 - The installed CLI command should be `gog`.
 - Core expected workflows include listing owned games and backing up owned games to a local directory.
 - Supporting workflows will likely include authentication, library discovery, metadata sync, game selection/filtering, download planning, downloading, verification, and incremental updates.
-- Do not assume a public distribution model, cloud sync, or piracy-related behavior. Scope work around backing up the authenticated user's own library.
+- The project does not assume a public distribution model, cloud sync, or
+  piracy-related behavior. Its scope is the authenticated user's own library.

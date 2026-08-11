@@ -22,8 +22,8 @@ It's also comfortable as a quick, interactive tool:
 gog list                    # your purchased library
 gog list civilization       # fuzzy title search
 gog search "baldurs gate"   # public catalog, with an "owned" column
-gog dl "civilization iv"    # download by name or id in the current directory
-gog dl 1760534591 --win     # unambiguous by id, Windows files only
+gog dl "civilization iv" --yes  # download by fuzzy name to the current directory
+gog dl 1760534591 --win --role installer --yes  # Windows installers by exact id
 gog help dl                 # contextual help for any command
 ```
 
@@ -179,10 +179,15 @@ Platform and role filters have shortcut flags on top of the general
 `--platform`/`--role` options:
 
 ```sh
-gog dl "civilization iv" --win              # shortcut for --platform windows
-gog dl "baldurs gate 3" --mac --lin         # --mac / --lin (or --linux)
-gog dl "civilization iv" --extras           # shortcut for --role extra
+gog plan "civilization iv" --win
+gog dl "civilization iv" --win --role installer --yes
+gog dl "civilization iv" --win --role installer --role extra --yes
 ```
+
+`--win` is a shortcut for `--platform windows`; `--mac`, `--lin`, and
+`--linux` work the same way for their platforms. Platform filters keep
+platform-neutral files eligible, so use `--role installer` when you want only
+installers. Repeat `--role` to include extras or other roles explicitly.
 
 For larger curated lists, put selectors in a UTF-8 text file and pass
 `--games-from`. Blank lines and lines whose first non-whitespace character is
@@ -200,8 +205,8 @@ cyberpunk_2077
 Use the selector file in plan, backup, or sync workflows:
 
 ```sh
-gog plan --destination /path/to/backups --games-from games.txt --storage
-gog backup --destination /path/to/backups --games-from games.txt --downloader aria2c --yes
+gog plan --destination /path/to/backups --games-from games.txt --win --role installer --role extra --storage
+gog backup --destination /path/to/backups --games-from games.txt --win --role installer --role extra --downloader aria2c --yes
 gog sync --destination /path/to/backups --games-from games.txt --dry-run
 ```
 
@@ -216,9 +221,15 @@ direct downloader is used. Pass `--downloader` explicitly to override either
 way:
 
 ```sh
-gog dl --games-from games.txt --yes                    # aria2c if present, else direct
-gog dl --games-from games.txt --downloader direct --yes # force the built-in downloader
+gog dl "civilization iv" --win --role installer --yes
+gog dl "civilization iv" --win --role installer --role extra --yes
+gog dl --games-from games.txt --win --role installer --role extra --yes
+gog dl --games-from games.txt --downloader direct --yes
 ```
+
+Downloaded artifacts keep their GOG-provided filenames, including every part
+of split installers. Files with published checksums must pass MD5 verification;
+files without one are retained as size-checked downloads in the backup manifest.
 
 When file size metadata is available, `gog` chooses `aria2c` connection settings
 by size: very small files use one connection, mid-size files use two or four,
