@@ -11,7 +11,7 @@ from gog_cli import log
 from gog_cli.api import GogApiClient
 from gog_cli.auth import FileTokenStore
 from gog_cli.config import load_config
-from gog_cli.errors import ExitCode, NetworkError
+from gog_cli.errors import AuthError, ExitCode, NetworkError
 from gog_cli.metadata import (
     extract_download_summary,
     normalize_genres,
@@ -136,6 +136,8 @@ def handle_refresh(args: argparse.Namespace) -> int:
 
         try:
             download_data = client.get_product_downloads(product_id)
+        except AuthError:
+            raise
         except (NetworkError, Exception) as exc:  # noqa: BLE001
             failures.append(f"{game['title']} ({product_id}): {exc}")
             _log.warning("download fetch failed for %s: %s", product_id, exc)
