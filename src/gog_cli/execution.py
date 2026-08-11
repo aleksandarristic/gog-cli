@@ -1189,11 +1189,15 @@ def _validate_filters(context: _ExecutionContext, selected: list[dict[str, Any]]
     ]
     if context.platforms:
         available = {spec.platform for spec in specs if spec.platform}
+        if any(spec.platform is None for spec in specs):
+            available.update(context.platforms)
         missing = sorted(set(context.platforms) - available)
         if missing:
             raise UsageError(f"Unknown platform filter: {', '.join(missing)}")
     if context.languages:
         available = {spec.language for spec in specs if spec.language}
+        if any(spec.language is None for spec in specs):
+            available.update(context.languages)
         missing = sorted(set(context.languages) - available)
         if missing:
             raise UsageError(f"Unknown language filter: {', '.join(missing)}")

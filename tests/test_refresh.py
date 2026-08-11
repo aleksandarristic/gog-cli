@@ -14,6 +14,7 @@ from gog_cli.refresh import _compute_delta, _fetch_library, _normalize_game, han
 from gog_cli.state import resolve_app_paths, utc_timestamp
 
 _LIBRARY_URL = "https://embed.gog.com/account/getFilteredProducts"
+_TOKEN_URL = "https://auth.gog.com/token"
 _PRODUCT_URL_1 = "https://api.gog.com/products/1"
 _PRODUCT_URL_2 = "https://api.gog.com/products/2"
 
@@ -328,6 +329,21 @@ def test_handle_refresh_partial_failure_exits_network(
     assert result == ExitCode.NETWORK
     err = capsys.readouterr().err
     assert "Beta Game" in err or "2" in err
+
+
+@rsps_lib.activate
+def test_handle_refresh_auth_failure_during_metadata_fetch_raises_auth_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _register_library([_PRODUCT_1])
+    rsps_lib.add(rsps_lib.GET, _PRODUCT_URL_1, status=401)
+    rsps_lib.add(rsps_lib.GET, _TOKEN_URL, status=400, json={"error": "invalid_grant"})
+    _patch_paths(tmp_path, monkeypatch)
+    _seed_session(tmp_path)
+
+    with pytest.raises(AuthError):
+        handle_refresh(_make_args())
 
 
 def test_handle_refresh_not_authenticated_raises_auth_error(

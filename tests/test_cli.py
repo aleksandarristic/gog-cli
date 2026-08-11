@@ -1163,6 +1163,40 @@ def test_backup_invalid_platform_filter_fails(
     assert "Unknown platform" in capsys.readouterr().err
 
 
+def test_backup_platform_filter_allows_universal_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_home(monkeypatch, tmp_path)
+    _seed_library_cache(
+        tmp_path,
+        [{"product_id": 1111, "title": "Witcher 3", "slug": "witcher_3", "platforms": []}],
+    )
+    _seed_download_cache_with_bonus(
+        tmp_path,
+        1111,
+        installers=[],
+        bonus_content=[_bonus_entry("guide", size=4)],
+    )
+
+    assert (
+        main(
+            [
+                "backup",
+                "--destination",
+                str(tmp_path / "backups"),
+                "--dry-run",
+                "--all",
+                "--platform",
+                "windows",
+                "--role",
+                "extra",
+            ]
+        )
+        == ExitCode.SUCCESS
+    )
+
+
 def test_backup_malformed_download_metadata_fails_parser(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
