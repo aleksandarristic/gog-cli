@@ -7,6 +7,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Download entry display names are no longer mistaken for local filenames;
+  actual filenames come from explicit metadata or GOG response headers.
+- `gog sync` retries failed records and restores files that are recorded in the
+  manifest but missing from disk.
+- Sync checks files at their manifest-recorded paths, including filenames that
+  were supplied by GOG at download time.
+- Free-space checks use the nearest existing parent when the requested backup
+  destination has not been created yet.
+- `gog auth status` refreshes an expired access token when the stored refresh
+  token is still valid.
+- Unknown `--role` values now return a usage error instead of silently selecting
+  no files.
+
+### Documentation
+- Added a deferred real-download test matrix covering single-game and selector-
+  file workflows with both direct and `aria2c` downloaders.
+
+---
+
 ## [1.0.1] — 2026-08-02
 
 ### Fixed

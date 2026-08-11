@@ -1163,6 +1163,27 @@ def test_backup_invalid_platform_filter_fails(
     assert "Unknown platform" in capsys.readouterr().err
 
 
+def test_backup_invalid_file_role_filter_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_backup_state(tmp_path, monkeypatch)
+
+    result = main([
+        "backup",
+        "--destination",
+        str(tmp_path / "backups"),
+        "--dry-run",
+        "--all",
+        "--role",
+        "installler",
+    ])
+
+    assert result == ExitCode.USAGE
+    assert "Unknown file role" in capsys.readouterr().err
+
+
 def test_backup_platform_filter_allows_universal_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1473,7 +1494,11 @@ def test_backup_uses_metadata_filename(
     _seed_download_cache(
         tmp_path,
         1111,
-        [_download_entry("setup_witcher", product_id=1111, name="setup_witcher_1.0.exe")],
+        [_download_entry(
+            "setup_witcher",
+            product_id=1111,
+            filename="setup_witcher_1.0.exe",
+        )],
     )
     _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_witcher")
 
@@ -1501,7 +1526,11 @@ def test_backup_falls_back_to_header_filename(
     _seed_download_cache(
         tmp_path,
         1111,
-        [_download_entry("setup_witcher", product_id=1111, name=None)],
+        [_download_entry(
+            "setup_witcher",
+            product_id=1111,
+            name="Witcher 3 (Windows) (English)",
+        )],
     )
     _mock_download(
         "https://api.gog.com/products/1111/downlink/installer/setup_witcher",
@@ -1717,11 +1746,14 @@ def test_sync_all_yes_downloads_only_stale_files(
             _manifest_game(source_id="setup_stale", version="1.0"),
         ],
     )
+    current_file = destination / "games" / "witcher_3" / "installers" / "setup_current"
+    current_file.parent.mkdir(parents=True)
+    current_file.write_bytes(b"current")
     _mock_download("https://api.gog.com/products/1111/downlink/installer/setup_stale")
 
     assert main(["sync", "--destination", str(destination), "--all", "--yes"]) == 0
 
-    assert not (destination / "games" / "witcher_3" / "installers" / "setup_current").exists()
+    assert current_file.read_bytes() == b"current"
     stale_file = destination / "games" / "witcher_3" / "installers" / "setup_stale"
     assert stale_file.read_bytes() == b"data"
 
@@ -2262,6 +2294,7 @@ def _download_entry(
     product_id: int = 1111,
     version: str = "1.0",
     name: str | None = "",
+    filename: str | None = None,
 ) -> dict:
     entry = {
         "id": f"installer_{source_id}",
@@ -2278,6 +2311,8 @@ def _download_entry(
     }
     if name is not None:
         entry["name"] = name or source_id
+    if filename is not None:
+        entry["files"][0]["filename"] = filename
     return entry
 
 
@@ -2323,7 +2358,6 @@ def test_backup_check_free_space_fails_when_insufficient(
 
     _seed_backup_state(tmp_path, monkeypatch)
     destination = tmp_path / "backups"
-    destination.mkdir(parents=True, exist_ok=True)
 
     fake_usage = type("du", (), {"free": 1, "used": 999, "total": 1000})()
     monkeypatch.setattr(shutil, "disk_usage", lambda path: fake_usage)

@@ -77,6 +77,11 @@ class GogApiClient:
             }
         )
 
+    def refresh_tokens(self) -> dict:
+        """Refresh the access token and return the updated session data."""
+        self._refresh_tokens()
+        return self._token_store.load_tokens()
+
     def _get(self, url: str, **kwargs: object) -> requests.Response:
         try:
             resp = self._session.get(url, headers=self._auth_headers(), timeout=30, **kwargs)

@@ -196,9 +196,12 @@ def plan_backup(
             if path not in planned_dests:
                 orphaned_local_files.append(path)
 
-    disk_free_bytes: int | None = None
-    if destination.exists():
-        disk_free_bytes = shutil.disk_usage(destination).free
+    disk_usage_path = destination
+    while not disk_usage_path.exists() and disk_usage_path != disk_usage_path.parent:
+        disk_usage_path = disk_usage_path.parent
+    disk_free_bytes = (
+        shutil.disk_usage(disk_usage_path).free if disk_usage_path.exists() else None
+    )
 
     return BackupPlan(
         destination=destination,

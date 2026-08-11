@@ -67,6 +67,7 @@ _ROLE_MAP = {
     "bonus_content": "extra",
     "manuals": "manual",
 }
+_SUPPORTED_FILE_ROLES = frozenset(_ROLE_MAP.values())
 
 
 @dataclass(frozen=True)
@@ -1114,13 +1115,9 @@ def _download_filename(
     entry: dict[str, Any],
     _source_id: str,
 ) -> str | None:
-    for value in (
-        file_entry.get("name"),
-        file_entry.get("filename"),
-        file_entry.get("title"),
-        entry.get("filename"),
-        entry.get("name"),
-    ):
+    # Generic name/title fields describe the download as a product, not the
+    # actual file. Leaving filename unset lets execution use Content-Disposition.
+    for value in (file_entry.get("filename"), entry.get("filename")):
         if isinstance(value, str) and value.strip():
             return Path(value.strip()).name
     return None
@@ -1201,3 +1198,7 @@ def _validate_filters(context: _ExecutionContext, selected: list[dict[str, Any]]
         missing = sorted(set(context.languages) - available)
         if missing:
             raise UsageError(f"Unknown language filter: {', '.join(missing)}")
+    if context.file_roles:
+        missing = sorted(set(context.file_roles) - _SUPPORTED_FILE_ROLES)
+        if missing:
+            raise UsageError(f"Unknown file role filter: {', '.join(missing)}")

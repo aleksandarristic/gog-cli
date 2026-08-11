@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from gog_cli import log
-from gog_cli.api import _CLIENT_ID, _CLIENT_SECRET, _TOKEN_URL
+from gog_cli.api import _CLIENT_ID, _CLIENT_SECRET, _TOKEN_URL, GogApiClient
 from gog_cli.errors import AuthError, ExitCode, FilesystemError, UsageError
 from gog_cli.state import (
     AppPaths,
@@ -208,8 +208,12 @@ def handle_auth_status(_args: argparse.Namespace) -> int:
         expires_at = None
 
     if expires_at is not None and datetime.now(tz=UTC) > expires_at:
-        print("Token expired. Run: gog auth login", file=sys.stderr)
-        return ExitCode.AUTH
+        try:
+            tokens = GogApiClient(store).refresh_tokens()
+        except AuthError as exc:
+            print(f"Session refresh failed: {exc}. Run: gog auth login", file=sys.stderr)
+            return ExitCode.AUTH
+        expires_at_str = tokens.get("expires_at", "")
 
     username = tokens.get("username", "unknown")
     print(f"Logged in as {username}. Token expires {expires_at_str}.")
