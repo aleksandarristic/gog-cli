@@ -1464,7 +1464,9 @@ def test_backup_auto_selects_aria2c_when_available(
     )
 
     def fake_run(cmd, **kwargs):  # noqa: ANN001
-        dest = Path(cmd[cmd.index("--dir") + 1]) / cmd[cmd.index("--out") + 1]
+        input_lines = Path(cmd[cmd.index("--input-file") + 1]).read_text().splitlines()
+        out = next(line.split("=", 1)[1] for line in input_lines if line.startswith("  out="))
+        dest = Path(cmd[cmd.index("--dir") + 1]) / out
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"data")
         return MagicMock(returncode=0, stdout="", stderr="")

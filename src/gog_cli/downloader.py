@@ -73,7 +73,7 @@ class Downloader:
             # downloaded and verified. os.replace() below swaps the completed temp
             # file into place atomically.
 
-        temp_path = dest.parent / f".{dest.name}.part"
+        temp_path = part_file_path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         # Handle oversized partial file
@@ -210,6 +210,15 @@ def fetch_checksum_xml(
         raise ChecksumParseError("Checksum metadata is invalid") from exc
     except Exception as exc:  # noqa: BLE001
         raise ChecksumFetchError("Could not fetch checksum metadata") from exc
+
+
+def part_file_path(dest: Path) -> Path:
+    """Return the hidden file a download is written to until it passes verification.
+
+    Every downloader keeps unfinished bytes here and moves the file to ``dest`` only
+    once it is complete and verified, so an existing ``dest`` is always a finished file.
+    """
+    return dest.parent / f".{dest.name}.part"
 
 
 def _md5_file(path: Path) -> str:

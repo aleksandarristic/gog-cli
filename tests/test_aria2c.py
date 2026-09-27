@@ -56,11 +56,25 @@ def test_default_downloader_is_direct_when_not_found() -> None:
 # --- download_via_aria2c ---
 
 
+def _aria2c_out_option(cmd: list[str]) -> str:
+    """Return the per-URI out= option from the input file of an aria2c command line."""
+    input_file = Path(cmd[cmd.index("--input-file") + 1])
+    for line in input_file.read_text().splitlines():
+        if line.startswith("  out="):
+            return line.removeprefix("  out=")
+    raise AssertionError("aria2c input file has no out= option")
+
+
+def _aria2c_output(cmd: list[str]) -> Path:
+    """Return the file an aria2c command line writes to."""
+    return Path(cmd[cmd.index("--dir") + 1]) / _aria2c_out_option(cmd)
+
+
 def _make_aria2c_success(dest: Path, content: bytes = b"data") -> MagicMock:
-    """Return a mock subprocess.run that writes content to dest on call."""
+    """Return a mock subprocess.run that writes content where aria2c is told to."""
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
-        output = Path(cmd[cmd.index("--dir") + 1]) / cmd[cmd.index("--out") + 1]
+        output = _aria2c_output(cmd)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -183,6 +197,99 @@ def test_failed_replacement_preserves_existing_file(tmp_path: Path) -> None:
     assert dest.read_bytes() == original
 
 
+def test_interrupted_download_stays_out_of_final_path(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+
+    def side_effect(cmd, **kwargs):  # noqa: ANN001
+        # aria2c preallocates the full size and records its progress
+        output = _aria2c_output(cmd)
+        output.write_bytes(b"\0" * 999)
+        Path(str(output) + ".aria2").write_bytes(b"progress")
+        return MagicMock(returncode=7)
+
+    with patch("subprocess.run", MagicMock(side_effect=side_effect)):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=999,
+        )
+
+    assert result.status == "failed"
+    assert not dest.exists()
+    assert result.temp_path == tmp_path / ".setup.exe.part"
+
+
+def test_download_resumes_part_file_with_control_file(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    content = b"real content"
+    part = tmp_path / ".setup.exe.part"
+    partial = b"real" + b"\0" * (len(content) - 4)
+    part.write_bytes(partial)
+    Path(str(part) + ".aria2").write_bytes(b"progress")
+    captured: list[tuple[list[str], str, bytes]] = []
+
+    def side_effect(cmd, **kwargs):  # noqa: ANN001
+        captured.append((cmd, _aria2c_out_option(cmd), part.read_bytes()))
+        _aria2c_output(cmd).write_bytes(content)
+        return MagicMock(returncode=0)
+
+    with patch("subprocess.run", MagicMock(side_effect=side_effect)):
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=len(content),
+        )
+
+    [(cmd, out, part_when_started)] = captured
+    # aria2c ignores a command-line --out for --input-file URIs
+    assert "--out" not in cmd
+    assert out == ".setup.exe.part"
+    assert "--continue=true" in cmd
+    assert part_when_started == partial
+    assert result.status == "downloaded"
+    assert dest.read_bytes() == content
+    assert not part.exists()
+
+
+def test_download_discards_complete_part_file_without_control_file(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe"
+    part = tmp_path / ".setup.exe.part"
+    part.write_bytes(b"failed verification")
+    seen_part: list[bool] = []
+
+    def side_effect(cmd, **kwargs):  # noqa: ANN001
+        seen_part.append(part.exists())
+        _aria2c_output(cmd).write_bytes(b"fresh bytes here!!!")
+        return MagicMock(returncode=0)
+
+    with patch("subprocess.run", MagicMock(side_effect=side_effect)):
+        download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+            expected_size=len(b"failed verification"),
+        )
+
+    assert seen_part == [False]
+
+
+def test_download_refuses_file_name_that_would_inject_aria2c_options(tmp_path: Path) -> None:
+    dest = tmp_path / "setup.exe\n  allow-overwrite=true"
+
+    with patch("subprocess.run") as mock_run:
+        result = download_via_aria2c(
+            url="https://cdn.example.com/setup.exe",
+            dest=dest,
+            aria2c_path=Path("/usr/bin/aria2c"),
+        )
+
+    mock_run.assert_not_called()
+    assert result.status == "failed"
+    assert result.failure_code == "unsafe_filename"
+
+
 def test_download_size_mismatch_accepted_when_not_strict(tmp_path: Path) -> None:
     dest = tmp_path / "bonus.pdf"
     content = b"bonus content"
@@ -220,7 +327,7 @@ def test_download_fails_on_size_mismatch(tmp_path: Path) -> None:
     content = b"short"
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
-        dest.write_bytes(content)
+        _aria2c_output(cmd).write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with patch("subprocess.run", MagicMock(side_effect=side_effect)):
@@ -240,7 +347,7 @@ def test_download_fails_on_checksum_mismatch(tmp_path: Path) -> None:
     content = b"real content"
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
-        dest.write_bytes(content)
+        _aria2c_output(cmd).write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with patch("subprocess.run", MagicMock(side_effect=side_effect)):
@@ -262,7 +369,7 @@ def test_download_verifies_correct_checksum(tmp_path: Path) -> None:
     md5 = hashlib.md5(content).hexdigest()  # noqa: S324
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
-        dest.write_bytes(content)
+        _aria2c_output(cmd).write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with patch("subprocess.run", MagicMock(side_effect=side_effect)):
@@ -285,7 +392,7 @@ def test_download_passes_auth_header(tmp_path: Path) -> None:
 
     def side_effect(cmd, **kwargs):  # noqa: ANN001
         captured_cmd.append(cmd)
-        dest.write_bytes(content)
+        _aria2c_output(cmd).write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with patch("subprocess.run", MagicMock(side_effect=side_effect)):
@@ -361,7 +468,7 @@ def test_download_temp_file_cleaned_up(tmp_path: Path) -> None:
         return fd, path
 
     def run_side_effect(cmd, **kwargs):  # noqa: ANN001
-        dest.write_bytes(content)
+        _aria2c_output(cmd).write_bytes(content)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with (

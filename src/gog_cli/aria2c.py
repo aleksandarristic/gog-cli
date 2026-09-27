@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from gog_cli.downloader import DownloadResult, _md5_file
+from gog_cli.downloader import DownloadResult, _md5_file, part_file_path
 from gog_cli.errors import UsageError
 
 _MIB = 1024 * 1024
@@ -92,10 +92,7 @@ def download_via_aria2c(
 ) -> DownloadResult:
     log = logger or logging.getLogger(__name__)
 
-    aria2_control = Path(str(dest) + ".aria2")
-    download_path = dest
-    replacing_existing = False
-    if dest.exists() and not aria2_control.exists():
+    if dest.exists():
         actual_size = dest.stat().st_size
         if expected_md5 is not None and _md5_file(dest) == expected_md5.lower():
             return DownloadResult(
@@ -105,11 +102,29 @@ def download_via_aria2c(
                 expected_size=expected_size,
                 checksum_verified=True,
             )
-        # Preserve the existing file until its replacement has downloaded and passed
-        # verification. The hidden part file also lets an interrupted replacement
-        # resume without exposing incomplete bytes at the final destination.
-        download_path = dest.parent / f".{dest.name}.part"
-        replacing_existing = True
+
+    # The part file matters for aria2c in particular: it preallocates the file to
+    # its full size, so an unfinished download at the final path would look
+    # complete. Progress is kept in "<part>.aria2", which aria2c resumes from.
+    download_path = part_file_path(dest)
+    if "\n" in download_path.name or "\r" in download_path.name:
+        # The name goes into the aria2c input file, where a new line starts an option.
+        return DownloadResult(
+            status="failed",
+            expected_size=expected_size,
+            failure_code="unsafe_filename",
+            failure_message=f"File name cannot be passed to aria2c: {download_path.name!r}",
+        )
+    aria2_control = Path(str(download_path) + ".aria2")
+    if (
+        download_path.exists()
+        and not aria2_control.exists()
+        and expected_size is not None
+        and download_path.stat().st_size >= expected_size
+    ):
+        # A complete part file left behind by a failed verification; aria2c would
+        # treat it as finished, so start over.
+        download_path.unlink()
 
     binary = aria2c_path or check_aria2c()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +135,10 @@ def download_via_aria2c(
     try:
         os.chmod(input_file, 0o600)
         with os.fdopen(fd, "w") as fh:
-            fh.write(url + "\n")
+            # aria2c ignores a command-line --out for URIs read from --input-file and
+            # names the file after the URL or Content-Disposition instead, so the
+            # output name has to be a per-URI option here.
+            fh.write(f"{url}\n  out={download_path.name}\n")
 
         split, connections = _options_for_size(expected_size, aria2c_policy)
         cmd = [
@@ -129,8 +147,6 @@ def download_via_aria2c(
             input_file,
             "--dir",
             str(download_path.parent),
-            "--out",
-            download_path.name,
             "--auto-file-renaming=false",
             "--continue=true",
             f"--split={split}",
@@ -201,8 +217,7 @@ def download_via_aria2c(
             )
         checksum_verified = True
 
-    if replacing_existing:
-        os.replace(download_path, dest)
+    os.replace(download_path, dest)
 
     return DownloadResult(
         status="verified" if checksum_verified else "downloaded",
